@@ -1,0 +1,13 @@
+# Ignore SQLite database
+chessclub.db
+
+# Python cache / junk
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual environments (if you use one here)
+venv/
+.env/
