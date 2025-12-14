@@ -115,21 +115,39 @@ def tournament_menu(conn, tid, tname, tdate):
         elif choice == "3":
             rows = repo.list_matches_for_tournament(conn, tid)
             print("\n📜 Tournament Matches:")
-            for p1, p2, result, d, p1_before, p1_after, p2_before, p2_after in rows:
+            for p1, p2, result, d, p1_before, p1_after, p2_before, p2_after, p1_g_before, p1_g_after, p2_g_before, p2_g_after in rows:
                 if result == 1:
                     outcome = f"{p1} beat {p2}"
                 elif result == 0:
                     outcome = f"{p2} beat {p1}"
                 else:
                     outcome = f"{p1} drew with {p2}"
-
-                # compute deltas when available
+                # compute deltas when available (Elo)
                 if p1_before is not None and p1_after is not None and p2_before is not None and p2_after is not None:
                     p1_delta = p1_after - p1_before
                     p2_delta = p2_after - p2_before
-                    print(f"{d}: {outcome} | {p1}: {p1_before:.1f} → {p1_after:.1f} ({p1_delta:+.1f}), {p2}: {p2_before:.1f} → {p2_after:.1f} ({p2_delta:+.1f})")
+                    elo_part = f"{p1}: {p1_before:.1f} → {p1_after:.1f} ({p1_delta:+.1f}), {p2}: {p2_before:.1f} → {p2_after:.1f} ({p2_delta:+.1f})"
                 else:
-                    print(f"{d}: {outcome}")
+                    elo_part = None
+
+                # Glicko display when available
+                if p1_g_before is not None and p1_g_after is not None and p2_g_before is not None and p2_g_after is not None:
+                    p1_g_delta = p1_g_after - p1_g_before
+                    p2_g_delta = p2_g_after - p2_g_before
+                    g_part = f"G2: {p1}: {p1_g_before:.1f} → {p1_g_after:.1f} ({p1_g_delta:+.1f}), {p2}: {p2_g_before:.1f} → {p2_g_after:.1f} ({p2_g_delta:+.1f})"
+                else:
+                    g_part = None
+
+                if config.RATING_SYSTEM == 'both':
+                    parts = [part for part in (elo_part, g_part) if part]
+                    if parts:
+                        print(f"{d}: {outcome} | " + " | ".join(parts))
+                    else:
+                        print(f"{d}: {outcome}")
+                elif config.RATING_SYSTEM == 'glicko2':
+                    print(f"{d}: {outcome} | " + (g_part if g_part else (elo_part if elo_part else "(no rating data)")))
+                else:
+                    print(f"{d}: {outcome} | " + (elo_part if elo_part else (g_part if g_part else "(no rating data)")))
             print()
         elif choice == "4":
             break
@@ -159,9 +177,10 @@ def show_player_games_flow(conn):
 
     print(f"\n📚 Matches for player ID {pid}:")
     for (mid, tname, mdate,
-         p1id, p1name, p1_before, p1_after,
-         p2id, p2name, p2_before, p2_after,
-         result) in matches:
+        p1id, p1name, p1_before, p1_after,
+        p2id, p2name, p2_before, p2_after,
+        p1_g_before, p1_g_after, p2_g_before, p2_g_after,
+        result) in matches:
 
         if pid == p1id:
             me_name, opp_name = p1name, p2name
@@ -189,17 +208,39 @@ def show_player_games_flow(conn):
                 outcome = f"result={result}"
 
         try:
-            delta = None if (me_before is None or me_after is None) else round(me_after - me_before, 2)
+            elo_delta = None if (me_before is None or me_after is None) else round(me_after - me_before, 2)
         except Exception:
-            delta = None
+            elo_delta = None
 
-        if me_before is None:
-            elo_str = "(no elo data)"
+        try:
+            g_delta = None if (me_g_before is None or me_g_after is None) else round(me_g_after - me_g_before, 2)
+        except Exception:
+            g_delta = None
+
+        elo_part = None
+        if me_before is not None and me_after is not None:
+            sign = "+" if elo_delta is not None and elo_delta > 0 else ""
+            elo_part = f"Elo: {me_before:.1f} → {me_after:.1f} ({sign}{elo_delta if elo_delta is not None else '0.0'})"
+
+        g_part = None
+        # determine me_g_before/me_g_after depending on which side
+        if pid == p1id:
+            me_g_before, me_g_after = p1_g_before, p1_g_after
         else:
-            sign = "+" if delta is not None and delta > 0 else ""
-            elo_str = f"{me_before:.1f} → {me_after:.1f} ({sign}{delta if delta is not None else '0.0'})"
+            me_g_before, me_g_after = p2_g_before, p2_g_after
 
-        print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | Elo: {elo_str}")
+        if me_g_before is not None and me_g_after is not None:
+            gsign = "+" if g_delta is not None and g_delta > 0 else ""
+            g_part = f"G2: {me_g_before:.1f} → {me_g_after:.1f} ({gsign}{g_delta if g_delta is not None else '0.0'})"
+
+        if config.RATING_SYSTEM == 'both':
+            parts = [p for p in (elo_part, g_part) if p]
+            combined = " | ".join(parts) if parts else "(no rating data)"
+            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | {combined}")
+        elif config.RATING_SYSTEM == 'glicko2':
+            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | " + (g_part if g_part else (elo_part if elo_part else "(no rating data)")))
+        else:
+            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | " + (elo_part if elo_part else (g_part if g_part else "(no rating data)")))
 
 
 def main():

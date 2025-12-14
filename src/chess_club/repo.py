@@ -111,7 +111,9 @@ def list_matches_for_tournament(conn, tournament_id: int):
         """
         SELECT p1.name, p2.name, m.result, m.date,
                m.player1_elo_before, m.player1_elo_after,
-               m.player2_elo_before, m.player2_elo_after
+               m.player2_elo_before, m.player2_elo_after,
+               m.player1_g2_rating_before, m.player1_g2_rating_after,
+               m.player2_g2_rating_before, m.player2_g2_rating_after
         FROM Matches m
         JOIN Players p1 ON m.player1_id = p1.id
         JOIN Players p2 ON m.player2_id = p2.id
@@ -139,6 +141,8 @@ def list_matches_for_player(conn, player_id: int):
             m.date,
             p1.id AS p1_id, p1.name AS p1_name, m.player1_elo_before, m.player1_elo_after,
             p2.id AS p2_id, p2.name AS p2_name, m.player2_elo_before, m.player2_elo_after,
+            m.player1_g2_rating_before, m.player1_g2_rating_after,
+            m.player2_g2_rating_before, m.player2_g2_rating_after,
             m.result
         FROM Matches m
         JOIN Players p1 ON m.player1_id = p1.id

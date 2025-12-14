@@ -33,14 +33,14 @@ def process_match(conn, p1_id, p2_id, result):
 
     # Glicko-2 branch
     if config.RATING_SYSTEM in ('glicko2', 'both'):
-        # get current glicko or defaults
+        # get current glicko or defaults; handle NULL/None DB values
         g1 = repo.get_player_glicko(conn, p1_id)
         g2 = repo.get_player_glicko(conn, p2_id)
-        if g1 is None:
+        if not g1 or g1[0] is None:
             r1, rd1, vol1 = config.G2_DEFAULT_RATING, config.G2_DEFAULT_RD, config.G2_DEFAULT_VOL
         else:
             r1, rd1, vol1 = g1
-        if g2 is None:
+        if not g2 or g2[0] is None:
             r2, rd2, vol2 = config.G2_DEFAULT_RATING, config.G2_DEFAULT_RD, config.G2_DEFAULT_VOL
         else:
             r2, rd2, vol2 = g2
@@ -57,5 +57,7 @@ def process_match(conn, p1_id, p2_id, result):
             'p1_g2_before': r1, 'p1_g2_after': new_r1,
             'p2_g2_before': r2, 'p2_g2_after': new_r2,
         })
+
+        # Do not mirror Glicko ratings into the Elo column. Keep systems separate.
 
     return out

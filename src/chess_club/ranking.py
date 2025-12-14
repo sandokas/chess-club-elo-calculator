@@ -3,36 +3,50 @@ from . import repo, elo, config, glicko2
 
 def show_leaderboard(conn, show_provisional: bool = True):
     print("\n🏆 Global Leaderboard:")
-
     players = repo.list_players(conn)
 
     official = []
     provisional = []
 
     for pid, name, elo_rating in players:
+        # Determine display based on configured rating system
+        g2 = repo.get_player_glicko(conn, pid)
+        if config.RATING_SYSTEM == 'glicko2':
+            display_val = g2[0] if g2 and g2[0] is not None else elo_rating
+            display_str = f"G2: {display_val:6.1f}" if isinstance(display_val, float) else str(display_val)
+        elif config.RATING_SYSTEM == 'both':
+            g2_val = g2[0] if g2 and g2[0] is not None else None
+            if g2_val is not None:
+                display_str = f"Elo:{elo_rating:6.1f} / G2:{g2_val:6.1f}"
+            else:
+                display_str = f"Elo:{elo_rating:6.1f}"
+        else:
+            display_str = f"Elo: {elo_rating:6.1f}"
+
         games_played, wins, draws, losses, last_game = repo.get_player_summary(conn, pid)
         last_game_str = last_game if last_game else "No games"
-        player_row = (name, elo_rating, games_played, wins, draws, losses, last_game_str)
+        player_row = (name, display_str, games_played, wins, draws, losses, last_game_str)
         if games_played >= config.MIN_GAMES_FOR_OFFICIAL:
             official.append(player_row)
         else:
             provisional.append(player_row)
 
-    print("\n📊 Official Leaderboard (≥ " f"{config.MIN_GAMES_FOR_OFFICIAL} games):")
+    heading = f"\n📊 Official Leaderboard (≥ {config.MIN_GAMES_FOR_OFFICIAL} games):"
+    print(heading)
     if not official:
         print("  (No players with enough games yet.)")
     else:
-        for name, elo_rating, games_played, wins, draws, losses, last_game_str in official:
-            print(f"{name:15} Elo: {elo_rating:6.1f} | Games: {games_played:3d} "
+        for name, display_str, games_played, wins, draws, losses, last_game_str in official:
+            print(f"{name:15} {display_str} | Games: {games_played:3d} "
                   f"| W/D/L: {wins}/{draws}/{losses} | Last game: {last_game_str}")
 
     if show_provisional:
-        print("\n🧪 Provisional Players (< " f"{config.MIN_GAMES_FOR_OFFICIAL} games):")
+        print(f"\n🧪 Provisional Players (< {config.MIN_GAMES_FOR_OFFICIAL} games):")
         if not provisional:
             print("  (No provisional players.)")
         else:
-            for name, elo_rating, games_played, wins, draws, losses, last_game_str in provisional:
-                print(f"{name:15} Elo: {elo_rating:6.1f} | Games: {games_played:3d} "
+            for name, display_str, games_played, wins, draws, losses, last_game_str in provisional:
+                print(f"{name:15} {display_str} | Games: {games_played:3d} "
                       f"| W/D/L: {wins}/{draws}/{losses} | Last game: {last_game_str} (P)")
     else:
         if provisional:
@@ -132,5 +146,8 @@ def recompute_glicko(conn):
 def recompute(conn):
     if config.RATING_SYSTEM == 'glicko2':
         recompute_glicko(conn)
-    else:
+    elif config.RATING_SYSTEM == 'both':
+        recompute_elos(conn)
+        recompute_glicko(conn)
+    elif config.RATING_SYSTEM == 'elo':
         recompute_elos(conn)

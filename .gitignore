@@ -1,5 +1,7 @@
 # Ignore SQLite database
 chessclub.db
+*.bak
+*.db
 
 # Python cache / junk
 __pycache__/
