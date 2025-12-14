@@ -1,0 +1,23 @@
+[project]
+name = "chess-club"
+version = "0.1.0"
+description = "Small CLI to manage a local chess club: players, tournaments and Elo ratings."
+readme = "README.md"
+authors = [ { name = "David + GPT" } ]
+license = { text = "MIT" }
+requires-python = ">=3.8"
+
+[project.urls]
+"Homepage" = "https://example.org/chess-club"
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+[project.scripts]
+chess-club = "chess_club.cli:main"

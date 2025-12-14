@@ -1,0 +1,38 @@
+Metadata-Version: 2.4
+Name: chess-club
+Version: 0.1.0
+Summary: Small CLI to manage a local chess club: players, tournaments and Elo ratings.
+Author: David + GPT
+License: MIT
+Project-URL: Homepage, https://example.org/chess-club
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+
+Chess Club Manager
+
+Overview
+- Small CLI app to manage players, tournaments and Elo ratings.
+
+Quick start
+
+1. Ensure you're in the project folder containing the files.
+2. Run the CLI (no external dependencies required):
+
+```bash
+python -c "import elo_calculator; print('module loads OK')"
+# or, to run interactively:
+python -m elo_calculator
+```
+
+If you prefer to import as a package, ensure the containing folder is a valid package name (avoid dots in folder names) or run the module directly.
+
+Files
+- `elo.py` — Elo calculation helpers
+- `db.py` — sqlite connection and schema initialization
+- `repo.py` — database query wrappers
+- `tournament.py` — tournament-specific logic
+- `ranking.py` — leaderboard and recompute logic
+- `elo_calculator.py` — thin CLI entry
+
+Notes
+- Default DB path is `chessclub.db`; change `DB_PATH` in `config.py` if needed.
