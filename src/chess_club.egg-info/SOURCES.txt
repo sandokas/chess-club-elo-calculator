@@ -6,7 +6,9 @@ src/chess_club/cli.py
 src/chess_club/config.py
 src/chess_club/db.py
 src/chess_club/elo.py
+src/chess_club/glicko2.py
 src/chess_club/ranking.py
+src/chess_club/ratings.py
 src/chess_club/repo.py
 src/chess_club/tournament.py
 src/chess_club.egg-info/PKG-INFO

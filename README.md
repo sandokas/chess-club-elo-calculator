@@ -1,28 +1,55 @@
 Chess Club Manager
 
+````markdown
+Chess Club Manager
+
 Overview
-- Small CLI app to manage players, tournaments and Elo ratings.
+- Small CLI app to manage players, tournaments and ratings (Elo and Glicko‑2).
 
 Quick start
 
-1. Ensure you're in the project folder containing the files.
-2. Run the CLI (no external dependencies required):
+- Install editable (recommended) and use the console script:
 
 ```bash
-python -c "import elo_calculator; print('module loads OK')"
-# or, to run interactively:
-python -m elo_calculator
+pip install -e .
+chess-club
 ```
 
-If you prefer to import as a package, ensure the containing folder is a valid package name (avoid dots in folder names) or run the module directly.
+- Or run without installing (from the repository root):
+
+```bash
+PYTHONPATH=src python -m chess_club
+```
+
+- Quick import check:
+
+```bash
+python -c "import chess_club; print('module loads OK')"
+```
 
 Files
 - `elo.py` — Elo calculation helpers
+- `glicko2.py` — Glicko‑2 helpers
+- `ratings.py` — rating orchestration (Elo/Glicko)
 - `db.py` — sqlite connection and schema initialization
 - `repo.py` — database query wrappers
-- `tournament.py` — tournament-specific logic
+- `tournament.py` — tournament logic and helpers
 - `ranking.py` — leaderboard and recompute logic
-- `elo_calculator.py` — thin CLI entry
+- `cli.py` / `__main__.py` — CLI entry (console script `chess-club` / `python -m chess_club`)
+- `config.py` — configuration (defaults and DB path)
 
-Notes
-- Default DB path is `chessclub.db`; change `DB_PATH` in `config.py` if needed.
+Usage notes
+- Default DB path is `chessclub.db`. Change `DB_PATH` in `config.py` to use a different file or location.
+- `RATING_SYSTEM` in `config.py` can be set to `"elo"`, `"glicko2"`, or `"both"` depending on which rating system(s) you want to use.
+
+Testing
+- Run the test suite with:
+
+```bash
+pytest
+```
+
+Contributing / Development
+- Work from the project root. When running directly, ensure Python can import `src` (via `PYTHONPATH=src` or by installing editable with `pip install -e .`).
+
+````
