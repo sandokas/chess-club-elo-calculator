@@ -1,9 +1,13 @@
+
 from typing import List, Dict, Optional
+import chess_club.config as config
 
 
-def add_player(conn, name: str) -> int:
+def add_player(conn, name: str, elo: float = None) -> int:
+    if elo is None:
+        elo = config.DEFAULT_ELO
     cur = conn.cursor()
-    cur.execute("INSERT INTO Players (name) VALUES (?)", (name,))
+    cur.execute("INSERT INTO Players (name, elo) VALUES (?, ?)", (name, elo))
     conn.commit()
     return cur.lastrowid
 

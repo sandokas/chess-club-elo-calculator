@@ -1,4 +1,7 @@
-from . import repo, elo, config, glicko2
+import chess_club.repo as repo
+import chess_club.elo as elo
+import chess_club.config as config
+import chess_club.glicko2 as glicko2
 
 
 def show_leaderboard(conn, show_provisional: bool = True):
@@ -55,7 +58,7 @@ def show_leaderboard(conn, show_provisional: bool = True):
 
 def recompute_elos(conn):
     cur = conn.cursor()
-    cur.execute("UPDATE Players SET elo = 1200")
+    cur.execute("UPDATE Players SET elo = ?", (config.DEFAULT_ELO,))
 
     # games played counter
     cur.execute("SELECT id FROM Players")

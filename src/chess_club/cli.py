@@ -1,10 +1,12 @@
+
 """Interactive CLI for the Chess Club package (src layout).
 
-This is a copy of the package CLI adapted to the `src/` layout. Keep this
-in sync with the package's main CLI implementation.
 """
-from datetime import date
-from . import db, repo, tournament, ranking, config
+import chess_club.db as db
+import chess_club.repo as repo
+import chess_club.tournament as tournament
+import chess_club.ranking as ranking
+import chess_club.config as config
 
 
 def add_player_flow(conn):
@@ -12,8 +14,8 @@ def add_player_flow(conn):
     if not name:
         return
     try:
-        repo.add_player(conn, name)
-        print(f"✅ Player '{name}' added with initial Elo 1200.")
+        repo.add_player(conn, name, config.DEFAULT_ELO)
+        print(f"✅ Player '{name}' added with initial Elo {config.DEFAULT_ELO}.")
     except Exception:
         print("⚠️ Player already exists or error adding player.")
 
