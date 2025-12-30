@@ -1,4 +1,5 @@
 from . import repo, elo, ratings
+import chess_club.ranking as ranking
 
 
 def add_player_to_tournament(conn, tournament_id: int, player_id: int):
@@ -24,31 +25,49 @@ def record_match_logic(conn, tournament_id: int, pid1: int, pid2: int, result: f
     k2 = elo.k_factor(g2)
 
     # Use ratings wrapper which may update Elo and/or Glicko depending on config
-    res = ratings.process_match(conn, pid1, pid2, result)
+    res = ratings.process_match(conn, pid1, pid2, result, match_date)
 
-    # insert match row (try to include Elo audit if available)
+    # insert match row (try to include Elo/Glicko audit and per-match last-played)
     try:
-        repo.insert_match_with_elos(
+        p1_last = repo.get_player_summary(conn, pid1)[4]
+        p2_last = repo.get_player_summary(conn, pid2)[4]
+        match_id = repo.insert_match_with_elos(
             conn,
             tournament_id, pid1, pid2, result, match_date,
             p1_elo_before=res.get('p1_elo_before'), p1_elo_after=res.get('p1_elo_after'),
-            p2_elo_before=res.get('p2_elo_before'), p2_elo_after=res.get('p2_elo_after')
+            p2_elo_before=res.get('p2_elo_before'), p2_elo_after=res.get('p2_elo_after'),
+            p1_g2_before=res.get('p1_g2_before'), p1_g2_after=res.get('p1_g2_after'),
+            p1_g2_rd_before=res.get('p1_g2_rd_before'), p1_g2_rd_after=res.get('p1_g2_rd_after'),
+            p1_g2_vol_before=res.get('p1_g2_vol_before'), p1_g2_vol_after=res.get('p1_g2_vol_after'),
+            p2_g2_before=res.get('p2_g2_before'), p2_g2_after=res.get('p2_g2_after'),
+            p2_g2_rd_before=res.get('p2_g2_rd_before'), p2_g2_rd_after=res.get('p2_g2_rd_after'),
+            p2_g2_vol_before=res.get('p2_g2_vol_before'), p2_g2_vol_after=res.get('p2_g2_vol_after'),
+            p1_last_played_before=p1_last, p2_last_played_before=p2_last
         )
-        match_id = None
     except Exception:
         match_id = repo.insert_match(conn, tournament_id, pid1, pid2, result, match_date)
 
     # update glicko per-match columns if present
     try:
-        # if insert used insert_match_with_elos above, get last inserted id
-        if match_id is None:
-            # find last rowid
+        # match_id should be set; if not, get last rowid
+        if not match_id:
             cur = conn.cursor()
             cur.execute('SELECT last_insert_rowid()')
             match_id = cur.fetchone()[0]
         repo.update_match_glicko(conn, match_id,
-                                 res.get('p1_g2_before'), res.get('p1_g2_after'),
-                                 res.get('p2_g2_before'), res.get('p2_g2_after'))
+                     res.get('p1_g2_before'), res.get('p1_g2_after'),
+                     res.get('p1_g2_rd_before'), res.get('p1_g2_rd_after'),
+                     res.get('p1_g2_vol_before'), res.get('p1_g2_vol_after'),
+                     res.get('p2_g2_before'), res.get('p2_g2_after'),
+                     res.get('p2_g2_rd_before'), res.get('p2_g2_rd_after'),
+                     res.get('p2_g2_vol_before'), res.get('p2_g2_vol_after'))
+    except Exception:
+        pass
+
+    # update players' last-game fields on profile
+    try:
+        repo.update_player_last_game(conn, pid1, match_date, match_id)
+        repo.update_player_last_game(conn, pid2, match_date, match_id)
     except Exception:
         pass
 
@@ -73,3 +92,34 @@ def reopen_tournament(conn, tournament_id: int):
     if not t:
         raise ValueError("Tournament not found")
     repo.reopen_tournament(conn, tournament_id)
+
+
+def update_match(conn, match_id: int, result: float, date: str = None):
+    """Update a match result (allowed only when tournament is open) and
+    recompute ratings affected by the change.
+
+    This updates the match row and triggers a full ratings recompute to
+    ensure consistency after the change.
+    """
+    m = repo.get_match(conn, match_id)
+    if not m:
+        raise ValueError("Match not found")
+    _, tid, p1, p2, _, _ = m
+
+    # Ensure tournament is not completed
+    if repo.is_tournament_completed(conn, tid):
+        raise ValueError("Tournament is completed")
+
+    # Update the match row
+    repo.update_match_result(conn, match_id, result, date)
+
+    # Try targeted recompute; if not possible (missing per-match audit data),
+    # fall back to a full recompute.
+    try:
+        ranking.recompute_from_match(conn, match_id)
+        return False
+    except ValueError:
+        # Fall back to full recompute when per-match before-values are missing
+        print("⚠️ Per-match audit data missing — performing full ratings recompute.")
+        ranking.recompute(conn)
+        return True

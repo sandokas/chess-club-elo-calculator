@@ -41,8 +41,16 @@ CREATE TABLE IF NOT EXISTS Matches (
     player2_elo_after REAL,
     player1_g2_rating_before REAL,
     player1_g2_rating_after REAL,
+    player1_g2_rd_before REAL,
+    player1_g2_rd_after REAL,
+    player1_g2_vol_before REAL,
+    player1_g2_vol_after REAL,
     player2_g2_rating_before REAL,
     player2_g2_rating_after REAL,
+    player2_g2_rd_before REAL,
+    player2_g2_rd_after REAL,
+    player2_g2_vol_before REAL,
+    player2_g2_vol_after REAL,
     FOREIGN KEY(tournament_id) REFERENCES Tournaments(id),
     FOREIGN KEY(player1_id) REFERENCES Players(id),
     FOREIGN KEY(player2_id) REFERENCES Players(id)
@@ -67,6 +75,8 @@ def init_db(conn):
     migrate_add_match_elo_columns(conn)
     migrate_add_player_g2_columns(conn)
     migrate_add_tournament_completed(conn)
+    migrate_add_player_last_game_columns(conn)
+    migrate_add_match_last_played_columns(conn)
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
@@ -87,8 +97,16 @@ def migrate_add_match_elo_columns(conn):
         ("player2_elo_after", "REAL"),
         ("player1_g2_rating_before", "REAL"),
         ("player1_g2_rating_after", "REAL"),
+        ("player1_g2_rd_before", "REAL"),
+        ("player1_g2_rd_after", "REAL"),
+        ("player1_g2_vol_before", "REAL"),
+        ("player1_g2_vol_after", "REAL"),
         ("player2_g2_rating_before", "REAL"),
         ("player2_g2_rating_after", "REAL"),
+        ("player2_g2_rd_before", "REAL"),
+        ("player2_g2_rd_after", "REAL"),
+        ("player2_g2_vol_before", "REAL"),
+        ("player2_g2_vol_after", "REAL"),
     ]
     cur = conn.cursor()
     for name, typ in cols:
@@ -112,6 +130,38 @@ def migrate_add_player_g2_columns(conn):
         try:
             if not _column_exists(conn, "Players", name):
                 cur.execute(f"ALTER TABLE Players ADD COLUMN {name} {typ}")
+        except Exception:
+            pass
+    conn.commit()
+
+
+def migrate_add_player_last_game_columns(conn):
+    """Add `last_game_date` and `last_game_match_id` to Players."""
+    cols = [
+        ("last_game_date", "TEXT"),
+        ("last_game_match_id", "INTEGER"),
+    ]
+    cur = conn.cursor()
+    for name, typ in cols:
+        try:
+            if not _column_exists(conn, "Players", name):
+                cur.execute(f"ALTER TABLE Players ADD COLUMN {name} {typ}")
+        except Exception:
+            pass
+    conn.commit()
+
+
+def migrate_add_match_last_played_columns(conn):
+    """Add per-match last-played audit columns to Matches."""
+    cols = [
+        ("player1_last_played_before", "TEXT"),
+        ("player2_last_played_before", "TEXT"),
+    ]
+    cur = conn.cursor()
+    for name, typ in cols:
+        try:
+            if not _column_exists(conn, "Matches", name):
+                cur.execute(f"ALTER TABLE Matches ADD COLUMN {name} {typ}")
         except Exception:
             pass
     conn.commit()

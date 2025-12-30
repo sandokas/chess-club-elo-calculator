@@ -63,3 +63,65 @@ def test_cannot_modify_completed_tournament_until_reopened():
     repo.add_tournament_player(conn, tid, p3)
     # And recording a match should succeed
     tournament.record_match_logic(conn, tid, p1, p3, 1.0, "2025-12-14")
+
+
+def test_update_match_recomputes_ratings():
+    conn = db.get_connection(":memory:")
+    db.init_db(conn)
+
+    p1 = repo.add_player(conn, "Alice")
+    p2 = repo.add_player(conn, "Bob")
+
+    tid = repo.add_tournament(conn, "T1", "2025-12-14")
+
+    repo.add_tournament_player(conn, tid, p1)
+    repo.add_tournament_player(conn, tid, p2)
+
+    # Record an initial decisive match (A beats B)
+    tournament.record_match_logic(conn, tid, p1, p2, 1.0, "2025-12-14")
+
+    # Capture elos after the initial result
+    p1_row = repo.get_player(conn, p1)
+    p2_row = repo.get_player(conn, p2)
+    elo_after_win_p1 = p1_row[2]
+    elo_after_loss_p2 = p2_row[2]
+
+    # Find the match id
+    matches = repo.get_all_matches_ordered(conn)
+    assert len(matches) == 1
+    match_id = matches[0][0]
+
+    # Update the match to a draw
+    tournament.update_match(conn, match_id, 0.5, "2025-12-14")
+
+    # Elos should have changed from the previous values
+    p1_row2 = repo.get_player(conn, p1)
+    p2_row2 = repo.get_player(conn, p2)
+    assert p1_row2[2] != elo_after_win_p1
+    assert p2_row2[2] != elo_after_loss_p2
+
+
+def test_cannot_update_match_in_completed_tournament():
+    conn = db.get_connection(":memory:")
+    db.init_db(conn)
+
+    p1 = repo.add_player(conn, "Alice")
+    p2 = repo.add_player(conn, "Bob")
+
+    tid = repo.add_tournament(conn, "T1", "2025-12-14")
+
+    repo.add_tournament_player(conn, tid, p1)
+    repo.add_tournament_player(conn, tid, p2)
+
+    tournament.record_match_logic(conn, tid, p1, p2, 1.0, "2025-12-14")
+    matches = repo.get_all_matches_ordered(conn)
+    match_id = matches[0][0]
+
+    # Complete the tournament
+    tournament.complete_tournament(conn, tid)
+
+    try:
+        tournament.update_match(conn, match_id, 0.5)
+        assert False, "Should not be able to update match in completed tournament"
+    except ValueError:
+        pass

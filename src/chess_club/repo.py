@@ -140,7 +140,14 @@ def insert_match(conn, tournament_id: int, p1: int, p2: int, result: float, date
 
 def insert_match_with_elos(conn, tournament_id: int, p1: int, p2: int, result: float, date: str,
                  p1_elo_before: float = None, p1_elo_after: float = None,
-                 p2_elo_before: float = None, p2_elo_after: float = None) -> int:
+                 p2_elo_before: float = None, p2_elo_after: float = None,
+                 p1_g2_before: float = None, p1_g2_after: float = None,
+                 p1_g2_rd_before: float = None, p1_g2_rd_after: float = None,
+                 p1_g2_vol_before: float = None, p1_g2_vol_after: float = None,
+                 p2_g2_before: float = None, p2_g2_after: float = None,
+                 p2_g2_rd_before: float = None, p2_g2_rd_after: float = None,
+                 p2_g2_vol_before: float = None, p2_g2_vol_after: float = None,
+                 p1_last_played_before: str = None, p2_last_played_before: str = None) -> int:
     # Prevent recording matches for completed tournaments
     if is_tournament_completed(conn, tournament_id):
         raise ValueError("Tournament is completed")
@@ -149,10 +156,16 @@ def insert_match_with_elos(conn, tournament_id: int, p1: int, p2: int, result: f
         """
         INSERT INTO Matches (
             tournament_id, player1_id, player2_id, result, date,
-            player1_elo_before, player1_elo_after, player2_elo_before, player2_elo_after
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            player1_elo_before, player1_elo_after, player2_elo_before, player2_elo_after,
+            player1_g2_rating_before, player1_g2_rating_after, player1_g2_rd_before, player1_g2_rd_after, player1_g2_vol_before, player1_g2_vol_after,
+            player2_g2_rating_before, player2_g2_rating_after, player2_g2_rd_before, player2_g2_rd_after, player2_g2_vol_before, player2_g2_vol_after
+            player1_last_played_before, player2_last_played_before
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (tournament_id, p1, p2, result, date, p1_elo_before, p1_elo_after, p2_elo_before, p2_elo_after)
+        (tournament_id, p1, p2, result, date, p1_elo_before, p1_elo_after, p2_elo_before, p2_elo_after,
+         p1_g2_before, p1_g2_after, p1_g2_rd_before, p1_g2_rd_after, p1_g2_vol_before, p1_g2_vol_after,
+         p2_g2_before, p2_g2_after, p2_g2_rd_before, p2_g2_rd_after, p2_g2_vol_before, p2_g2_vol_after,
+         p1_last_played_before, p2_last_played_before)
     )
     conn.commit()
     return cur.lastrowid
@@ -181,7 +194,9 @@ def list_matches_for_tournament(conn, tournament_id: int):
                m.player1_elo_before, m.player1_elo_after,
                m.player2_elo_before, m.player2_elo_after,
                m.player1_g2_rating_before, m.player1_g2_rating_after,
-               m.player2_g2_rating_before, m.player2_g2_rating_after
+               m.player1_g2_rd_before, m.player1_g2_rd_after, m.player1_g2_vol_before, m.player1_g2_vol_after,
+               m.player2_g2_rating_before, m.player2_g2_rating_after,
+               m.player2_g2_rd_before, m.player2_g2_rd_after, m.player2_g2_vol_before, m.player2_g2_vol_after
         FROM Matches m
         JOIN Players p1 ON m.player1_id = p1.id
         JOIN Players p2 ON m.player2_id = p2.id
@@ -199,6 +214,27 @@ def get_all_matches_ordered(conn):
     return cur.fetchall()
 
 
+def get_match(conn, match_id: int):
+    cur = conn.cursor()
+    cur.execute("SELECT id, tournament_id, player1_id, player2_id, result, date FROM Matches WHERE id = ?", (match_id,))
+    return cur.fetchone()
+
+
+def update_match_result(conn, match_id: int, result: float, date: str = None):
+    # Update a match row; higher-level code enforces tournament completed checks
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM Matches WHERE id = ?", (match_id,))
+    row = cur.fetchone()
+    if not row:
+        raise ValueError("Match not found")
+
+    if date is None:
+        cur.execute("UPDATE Matches SET result = ? WHERE id = ?", (result, match_id))
+    else:
+        cur.execute("UPDATE Matches SET result = ?, date = ? WHERE id = ?", (result, date, match_id))
+    conn.commit()
+
+
 def list_matches_for_player(conn, player_id: int):
     cur = conn.cursor()
     cur.execute(
@@ -209,8 +245,8 @@ def list_matches_for_player(conn, player_id: int):
             m.date,
             p1.id AS p1_id, p1.name AS p1_name, m.player1_elo_before, m.player1_elo_after,
             p2.id AS p2_id, p2.name AS p2_name, m.player2_elo_before, m.player2_elo_after,
-            m.player1_g2_rating_before, m.player1_g2_rating_after,
-            m.player2_g2_rating_before, m.player2_g2_rating_after,
+            m.player1_g2_rating_before, m.player1_g2_rating_after, m.player1_g2_rd_before, m.player1_g2_rd_after, m.player1_g2_vol_before, m.player1_g2_vol_after,
+            m.player2_g2_rating_before, m.player2_g2_rating_after, m.player2_g2_rd_before, m.player2_g2_rd_after, m.player2_g2_vol_before, m.player2_g2_vol_after,
             m.result
         FROM Matches m
         JOIN Players p1 ON m.player1_id = p1.id
@@ -246,6 +282,7 @@ def get_player_summary(conn, player_id: int):
     return games_played, wins, draws, losses, last_game
 
 
+
 def get_player_glicko(conn, player_id: int):
     cur = conn.cursor()
     cur.execute("SELECT g2_rating, g2_rd, g2_vol FROM Players WHERE id = ?", (player_id,))
@@ -261,18 +298,40 @@ def update_player_glicko(conn, player_id: int, rating: float, rd: float, vol: fl
     conn.commit()
 
 
-def update_match_glicko(conn, match_id: int, p1_g_before: float, p1_g_after: float, p2_g_before: float, p2_g_after: float):
+def update_match_glicko(conn, match_id: int,
+                        p1_g_before: float, p1_g_after: float,
+                        p1_g_rd_before: float = None, p1_g_rd_after: float = None,
+                        p1_g_vol_before: float = None, p1_g_vol_after: float = None,
+                        p2_g_before: float = None, p2_g_after: float = None,
+                        p2_g_rd_before: float = None, p2_g_rd_after: float = None,
+                        p2_g_vol_before: float = None, p2_g_vol_after: float = None):
     cur = conn.cursor()
     try:
         cur.execute(
             """
             UPDATE Matches SET
                 player1_g2_rating_before = ?, player1_g2_rating_after = ?,
-                player2_g2_rating_before = ?, player2_g2_rating_after = ?
+                player1_g2_rd_before = ?, player1_g2_rd_after = ?,
+                player1_g2_vol_before = ?, player1_g2_vol_after = ?,
+                player2_g2_rating_before = ?, player2_g2_rating_after = ?,
+                player2_g2_rd_before = ?, player2_g2_rd_after = ?,
+                player2_g2_vol_before = ?, player2_g2_vol_after = ?
             WHERE id = ?
             """,
-            (p1_g_before, p1_g_after, p2_g_before, p2_g_after, match_id)
+            (p1_g_before, p1_g_after, p1_g_rd_before, p1_g_rd_after, p1_g_vol_before, p1_g_vol_after,
+             p2_g_before, p2_g_after, p2_g_rd_before, p2_g_rd_after, p2_g_vol_before, p2_g_vol_after, match_id)
         )
+        conn.commit()
+    except Exception:
+        # If columns don't exist, ignore.
+        pass
+
+
+def update_player_last_game(conn, player_id: int, last_game_date: str, last_game_match_id: int = None):
+    cur = conn.cursor()
+    try:
+        cur.execute("UPDATE Players SET last_game_date = ?, last_game_match_id = ? WHERE id = ?",
+                    (last_game_date, last_game_match_id, player_id))
         conn.commit()
     except Exception:
         # If columns don't exist, ignore.
