@@ -12,7 +12,8 @@ CREATE_TOURNAMENTS = """
 CREATE TABLE IF NOT EXISTS Tournaments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
-    date TEXT NOT NULL
+    date TEXT NOT NULL,
+    completed INTEGER DEFAULT 0
 )
 """
 
@@ -65,6 +66,7 @@ def init_db(conn):
     # Run migrations to bring older DBs up-to-date
     migrate_add_match_elo_columns(conn)
     migrate_add_player_g2_columns(conn)
+    migrate_add_tournament_completed(conn)
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
@@ -112,4 +114,19 @@ def migrate_add_player_g2_columns(conn):
                 cur.execute(f"ALTER TABLE Players ADD COLUMN {name} {typ}")
         except Exception:
             pass
+    conn.commit()
+
+
+def migrate_add_tournament_completed(conn):
+    """Add a 'completed' flag to Tournaments so older DBs can be updated.
+
+    This is safe to run repeatedly and will ALTER TABLE only when required.
+    """
+    cur = conn.cursor()
+    try:
+        if not _column_exists(conn, "Tournaments", "completed"):
+            cur.execute("ALTER TABLE Tournaments ADD COLUMN completed INTEGER DEFAULT 0")
+    except Exception:
+        # Be conservative: if ALTER fails for any reason, continue.
+        pass
     conn.commit()

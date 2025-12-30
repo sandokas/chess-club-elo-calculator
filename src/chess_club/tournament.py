@@ -6,6 +6,9 @@ def add_player_to_tournament(conn, tournament_id: int, player_id: int):
 
 
 def record_match_logic(conn, tournament_id: int, pid1: int, pid2: int, result: float, match_date: str):
+    # Prevent recording matches for completed tournaments
+    if repo.is_tournament_completed(conn, tournament_id):
+        raise ValueError("Tournament is completed")
     p1 = repo.get_player(conn, pid1)
     p2 = repo.get_player(conn, pid2)
     if not p1 or not p2:
@@ -51,3 +54,22 @@ def record_match_logic(conn, tournament_id: int, pid1: int, pid2: int, result: f
 
     # return names and elo/glicko quick summary (prefer elo for legacy)
     return (p1[1], res.get('p1_elo_after') or res.get('p1_g2_after'), p2[1], res.get('p2_elo_after') or res.get('p2_g2_after'))
+
+
+def complete_tournament(conn, tournament_id: int):
+    """Mark a tournament as completed. Further players or matches cannot be added.
+
+    Raises ValueError if tournament not found.
+    """
+    t = repo.get_tournament(conn, tournament_id)
+    if not t:
+        raise ValueError("Tournament not found")
+    repo.complete_tournament(conn, tournament_id)
+
+
+def reopen_tournament(conn, tournament_id: int):
+    """Reopen a previously completed tournament so it can be modified again."""
+    t = repo.get_tournament(conn, tournament_id)
+    if not t:
+        raise ValueError("Tournament not found")
+    repo.reopen_tournament(conn, tournament_id)

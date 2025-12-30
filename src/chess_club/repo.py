@@ -50,6 +50,13 @@ def get_tournament(conn, tournament_id: int):
     return cur.fetchone()
 
 
+def is_tournament_completed(conn, tournament_id: int) -> bool:
+    cur = conn.cursor()
+    cur.execute("SELECT completed FROM Tournaments WHERE id = ?", (tournament_id,))
+    row = cur.fetchone()
+    return bool(row and row[0])
+
+
 def update_tournament(conn, tournament_id: int, name: str, date: str):
     cur = conn.cursor()
     cur.execute("UPDATE Tournaments SET name = ?, date = ? WHERE id = ?", (name, date, tournament_id))
@@ -73,6 +80,18 @@ def delete_tournament(conn, tournament_id: int):
     conn.commit()
 
 
+def complete_tournament(conn, tournament_id: int):
+    cur = conn.cursor()
+    cur.execute("UPDATE Tournaments SET completed = 1 WHERE id = ?", (tournament_id,))
+    conn.commit()
+
+
+def reopen_tournament(conn, tournament_id: int):
+    cur = conn.cursor()
+    cur.execute("UPDATE Tournaments SET completed = 0 WHERE id = ?", (tournament_id,))
+    conn.commit()
+
+
 def list_tournaments(conn):
     cur = conn.cursor()
     cur.execute("SELECT id, name, date FROM Tournaments ORDER BY date DESC")
@@ -81,6 +100,9 @@ def list_tournaments(conn):
 
 def add_tournament_player(conn, tournament_id: int, player_id: int):
     cur = conn.cursor()
+    # Prevent adding players to finished tournaments
+    if is_tournament_completed(conn, tournament_id):
+        raise ValueError("Tournament is completed")
     cur.execute("INSERT INTO TournamentPlayers (tournament_id, player_id) VALUES (?, ?)", (tournament_id, player_id))
     conn.commit()
 
@@ -104,6 +126,9 @@ def games_played_for_player(conn, player_id: int) -> int:
 
 
 def insert_match(conn, tournament_id: int, p1: int, p2: int, result: float, date: str) -> int:
+    # Prevent recording matches for completed tournaments
+    if is_tournament_completed(conn, tournament_id):
+        raise ValueError("Tournament is completed")
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO Matches (tournament_id, player1_id, player2_id, result, date) VALUES (?, ?, ?, ?, ?)",
@@ -116,6 +141,9 @@ def insert_match(conn, tournament_id: int, p1: int, p2: int, result: float, date
 def insert_match_with_elos(conn, tournament_id: int, p1: int, p2: int, result: float, date: str,
                  p1_elo_before: float = None, p1_elo_after: float = None,
                  p2_elo_before: float = None, p2_elo_after: float = None) -> int:
+    # Prevent recording matches for completed tournaments
+    if is_tournament_completed(conn, tournament_id):
+        raise ValueError("Tournament is completed")
     cur = conn.cursor()
     cur.execute(
         """
