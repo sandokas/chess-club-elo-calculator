@@ -36,27 +36,38 @@ def open_tournament_flow(conn):
     print("\nAvailable Tournaments:")
     for tid, name, tdate in tournaments:
         print(f"{tid}: {name} ({tdate})")
-    tid = input("Select tournament ID: ").strip()
-    try:
-        tid_int = int(tid)
-    except ValueError:
+
+    tid = input("Select tournament ID (or leave blank to cancel): ").strip()
+    if not tid:
+        print("Nothing was selected. Returning.")
+        return
+    if not tid.isdigit():
         print("⚠️ Invalid tournament ID.")
         return
-    found = [t for t in tournaments if t[0] == tid_int]
-    if not found:
-        print("⚠️ Invalid tournament ID.")
+    tid_int = int(tid)
+
+    # validate against current DB in case list is stale or tournament was removed
+    t = repo.get_tournament(conn, tid_int)
+    if not t:
+        print("⚠️ Tournament not found.")
         return
-    tname, tdate = found[0][1], found[0][2]
-    tournament_menu(conn, tid_int, tname, tdate)
+    tournament_menu(conn, tid_int)
 
 
-def tournament_menu(conn, tid, tname, tdate):
+def tournament_menu(conn, tid):
     while True:
+        t = repo.get_tournament(conn, tid)
+        if not t:
+            print("⚠️ Tournament not found (it may have been deleted). Returning to main menu.")
+            return
+        _, tname, tdate = t
         print(f"\n=== Tournament: {tname} ({tdate}) ===")
         print("1. Add Player to Tournament")
         print("2. Record Match")
         print("3. Show Tournament Matches")
         print("4. Return to Main Menu")
+        print("5. Update Tournament")
+        print("6. Delete Tournament")
         choice = input("Select an option: ").strip()
 
         if choice == "1":
@@ -151,6 +162,50 @@ def tournament_menu(conn, tid, tname, tdate):
             print()
         elif choice == "4":
             break
+        elif choice == "5":
+            # Update tournament name/date
+            cur = repo.get_tournament(conn, tid)
+            if not cur:
+                print("⚠️ Tournament not found.")
+                continue
+            _, cur_name, cur_date = cur
+            new_name = input(f"Enter new tournament name (leave blank to keep '{cur_name}'): ").strip()
+            new_date = input(f"Enter new tournament date (YYYY-MM-DD) (leave blank to keep '{cur_date}'): ").strip()
+            if not new_name:
+                new_name = cur_name
+            if not new_date:
+                new_date = cur_date
+            try:
+                repo.update_tournament(conn, tid, new_name, new_date)
+                print("✅ Tournament updated.")
+            except Exception:
+                print("⚠️ Error updating tournament.")
+        elif choice == "6":
+            # Delete tournament (ask confirmation if games exist)
+            try:
+                games_count = repo.count_matches_for_tournament(conn, tid)
+            except Exception:
+                games_count = 0
+            if games_count > 0:
+                confirm = input(f"Tournament has {games_count} recorded games. Type 'yes' to permanently delete tournament and its games: ").strip().lower()
+                if confirm != 'yes':
+                    print("Deletion cancelled.")
+                    continue
+            else:
+                confirm = input("Delete this tournament? Type 'yes' to confirm: ").strip().lower()
+                if confirm != 'yes':
+                    print("Deletion cancelled.")
+                    continue
+
+            try:
+                repo.delete_tournament(conn, tid)
+                # recompute ratings after removing matches
+                ranking.recompute(conn)
+                print("✅ Tournament and its games deleted. Ratings recomputed.")
+                return
+            except Exception as e:
+                print("⚠️ Error deleting tournament:", e)
+                continue
         else:
             print("⚠️ Invalid choice. Try again.")
 

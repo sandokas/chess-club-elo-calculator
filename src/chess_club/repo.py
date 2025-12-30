@@ -33,6 +33,35 @@ def add_tournament(conn, name: str, date: str) -> int:
     return cur.lastrowid
 
 
+def get_tournament(conn, tournament_id: int):
+    cur = conn.cursor()
+    cur.execute("SELECT id, name, date FROM Tournaments WHERE id = ?", (tournament_id,))
+    return cur.fetchone()
+
+
+def update_tournament(conn, tournament_id: int, name: str, date: str):
+    cur = conn.cursor()
+    cur.execute("UPDATE Tournaments SET name = ?, date = ? WHERE id = ?", (name, date, tournament_id))
+    conn.commit()
+
+
+def count_matches_for_tournament(conn, tournament_id: int) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM Matches WHERE tournament_id = ?", (tournament_id,))
+    return cur.fetchone()[0]
+
+
+def delete_tournament(conn, tournament_id: int):
+    cur = conn.cursor()
+    # remove tournament players registrations
+    cur.execute("DELETE FROM TournamentPlayers WHERE tournament_id = ?", (tournament_id,))
+    # remove matches belonging to tournament
+    cur.execute("DELETE FROM Matches WHERE tournament_id = ?", (tournament_id,))
+    # remove the tournament row
+    cur.execute("DELETE FROM Tournaments WHERE id = ?", (tournament_id,))
+    conn.commit()
+
+
 def list_tournaments(conn):
     cur = conn.cursor()
     cur.execute("SELECT id, name, date FROM Tournaments ORDER BY date DESC")

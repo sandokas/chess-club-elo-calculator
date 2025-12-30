@@ -21,3 +21,11 @@ package-dir = {"" = "src"}
 where = ["src"]
 [project.scripts]
 chess-club = "chess_club.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
