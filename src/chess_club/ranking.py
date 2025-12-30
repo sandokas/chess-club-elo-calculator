@@ -102,12 +102,6 @@ def recompute(conn):
     print("✅ Ratings successfully recomputed from all matches using compute_match.")
 
 
-def recompute(conn):
-    # Always recompute both systems. `RATING_SYSTEM` controls display and ordering
-    # but both systems should be recalculated behind the scenes.
-    recompute_elos(conn)
-    recompute_glicko(conn)
-
 
 def recompute_from_match(conn, match_id: int):
     """Recompute ratings starting from a given match id.

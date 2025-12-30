@@ -50,7 +50,6 @@ def create_match_with_result(conn, tournament_id: int, pid1: int, pid2: int, res
 
     match_id = repo.create_match(conn, tournament_id, pid1, pid2, match_date)
     out = ratings.compute_match(conn, pid1, pid2, result, match_date)
-    out = ratings.compute_match(conn, pid1, pid2, result, match_date)
     service.record_match_result(conn, match_id, pid1, pid2, out, match_date)
     p1 = repo.get_player(conn, pid1)
     p2 = repo.get_player(conn, pid2)
