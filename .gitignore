@@ -16,3 +16,4 @@ venv/
 .venv/
 .vscode/
 
+chessclub.db-journal
