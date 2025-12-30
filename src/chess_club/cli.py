@@ -148,7 +148,7 @@ def tournament_menu(conn, tid):
                 continue
             # get tournament date already provided
             try:
-                n1, new1, n2, new2 = tournament.record_match_logic(conn, tid, pid1, pid2, result, tdate)
+                n1, new1, n2, new2 = tournament.create_match(conn, tid, pid1, pid2, result, tdate)
                 print(f"✅ Match recorded. New ratings: {n1}={new1}, {n2}={new2}")
             except Exception as e:
                 print("⚠️ Error recording match:", e)

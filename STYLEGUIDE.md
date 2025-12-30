@@ -39,6 +39,15 @@ Style and tooling
 - Type hints: use them for public functions where it improves clarity.
 - Naming: `snake_case` for functions and variables, `UPPER_SNAKE` for constants.
 
+Refactoring & API stability
+- **No compatibility wrappers:** When refactoring, do NOT add wrapper/alias functions solely for "compatibility." Fix the callers (tests, CLI, other modules) to use the new canonical names. Wrappers hide technical debt, motivate lazy maintenance, and increase long‑term confusion.
+- **Rename callers, not functions:** If you must rename an API, update all call sites in a single commit and run the test suite. Prefer an explicit migration commit that touches callers rather than leaving alias shims.
+
+Naming guidance (practical)
+- **Repository layer (`repo`)**: use clear CRUD verbs and indicate scope/side‑effects. Examples: `create_match_row`, `update_match_row`, `apply_match_result` (high‑level, recomputes ratings and persists audits), `get_player`, `list_players`, `add_tournament_player`.
+- **Business layer (service/orchestration)**: use names that describe the business intent, not DB implementation. Examples: `create_match` (schedule + apply result), `record_match_with_result` (orchestrator that creates and applies atomically), `complete_tournament`, `reopen_tournament`, `update_match` (business flow that validates and triggers recompute).
+- **Signal transactions and heavy side effects in the name or docstring** so callers know when a function begins/commits/rolls back transactions or recomputes many ratings.
+
 Tests and CI
 - Tests should rely on `config.DEFAULT_ELO` (or set a test-specific config) instead of hardcoding numeric defaults.
 - When changing displayed row shapes (e.g., adding prefetched columns), update tests to match the returned tuples.

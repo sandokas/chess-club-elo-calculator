@@ -50,8 +50,8 @@ def test_fallback_on_missing_before():
         repo.add_tournament_player(conn, t, p2)
         repo.add_tournament_player(conn, t, p3)
         # record two matches same day
-        tournament.record_match_logic(conn, t, p1, p2, 1.0, '2025-12-30')
-        tournament.record_match_logic(conn, t, p2, p3, 1.0, '2025-12-30')
+        tournament.create_match(conn, t, p1, p2, 1.0, '2025-12-30')
+        tournament.create_match(conn, t, p2, p3, 1.0, '2025-12-30')
         # Recompute from second match should use zero days because same-day ordering
         # find second match id
         matches = repo.get_all_matches_ordered(conn)

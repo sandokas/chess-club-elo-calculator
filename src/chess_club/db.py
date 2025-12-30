@@ -77,6 +77,7 @@ def init_db(conn):
     migrate_add_tournament_completed(conn)
     migrate_add_player_last_game_columns(conn)
     migrate_add_match_last_played_columns(conn)
+    migrate_allow_nullable_match_result(conn)
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
@@ -180,3 +181,68 @@ def migrate_add_tournament_completed(conn):
         # Be conservative: if ALTER fails for any reason, continue.
         pass
     conn.commit()
+
+
+def migrate_allow_nullable_match_result(conn):
+    """If the existing Matches.result column is NOT NULL, recreate the
+    table with a nullable `result` column. This is safe to run repeatedly.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute("PRAGMA table_info(Matches)")
+        cols = cur.fetchall()
+        # find result column info: (cid, name, type, notnull, dflt_value, pk)
+        result_col = next((c for c in cols if c[1] == 'result'), None)
+        if result_col and result_col[3] == 1:
+            # recreate table with nullable result
+            cur.execute("PRAGMA foreign_keys=OFF")
+            conn.commit()
+            cur.execute("BEGIN TRANSACTION")
+            # create temporary table with same columns but result nullable
+            cur.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS Matches_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tournament_id INTEGER NOT NULL,
+                    player1_id INTEGER NOT NULL,
+                    player2_id INTEGER NOT NULL,
+                    result REAL,
+                    date TEXT NOT NULL,
+                    player1_elo_before REAL,
+                    player1_elo_after REAL,
+                    player2_elo_before REAL,
+                    player2_elo_after REAL,
+                    player1_g2_rating_before REAL,
+                    player1_g2_rating_after REAL,
+                    player1_g2_rd_before REAL,
+                    player1_g2_rd_after REAL,
+                    player1_g2_vol_before REAL,
+                    player1_g2_vol_after REAL,
+                    player2_g2_rating_before REAL,
+                    player2_g2_rating_after REAL,
+                    player2_g2_rd_before REAL,
+                    player2_g2_rd_after REAL,
+                    player2_g2_vol_before REAL,
+                    player2_g2_vol_after REAL,
+                    player1_last_played_before TEXT,
+                    player2_last_played_before TEXT,
+                    FOREIGN KEY(tournament_id) REFERENCES Tournaments(id),
+                    FOREIGN KEY(player1_id) REFERENCES Players(id),
+                    FOREIGN KEY(player2_id) REFERENCES Players(id)
+                )
+                '''
+            )
+            # copy data across (result may already be present)
+            cur.execute(
+                "INSERT INTO Matches_new (id, tournament_id, player1_id, player2_id, result, date, player1_elo_before, player1_elo_after, player2_elo_before, player2_elo_after, player1_g2_rating_before, player1_g2_rating_after, player1_g2_rd_before, player1_g2_rd_after, player1_g2_vol_before, player1_g2_vol_after, player2_g2_rating_before, player2_g2_rating_after, player2_g2_rd_before, player2_g2_rd_after, player2_g2_vol_before, player2_g2_vol_after, player1_last_played_before, player2_last_played_before) SELECT id, tournament_id, player1_id, player2_id, result, date, player1_elo_before, player1_elo_after, player2_elo_before, player2_elo_after, player1_g2_rating_before, player1_g2_rating_after, player1_g2_rd_before, player1_g2_rd_after, player1_g2_vol_before, player1_g2_vol_after, player2_g2_rating_before, player2_g2_rating_after, player2_g2_rd_before, player2_g2_rd_after, player2_g2_vol_before, player2_g2_vol_after, player1_last_played_before, player2_last_played_before FROM Matches"
+            )
+            cur.execute("DROP TABLE Matches")
+            cur.execute("ALTER TABLE Matches_new RENAME TO Matches")
+            cur.execute("PRAGMA foreign_keys=ON")
+            conn.commit()
+    except Exception:
+        # If anything fails, don't block initialization
+        try:
+            conn.rollback()
+        except Exception:
+            pass

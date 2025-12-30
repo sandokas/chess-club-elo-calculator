@@ -2,6 +2,8 @@ import chess_club.repo as repo
 import chess_club.elo as elo
 import chess_club.config as config
 import chess_club.glicko2 as glicko2
+import chess_club.ratings as ratings
+import chess_club.service as service
 import math
 
 
@@ -56,121 +58,48 @@ def show_leaderboard(conn, show_provisional: bool = True):
             print(f"\n(ℹ️ {len(provisional)} provisional players hidden. Toggle them ON in the main menu to see them.)")
 
 
-def recompute_elos(conn):
+def recompute(conn):
+    """Recompute both Elo and Glicko-2 by replaying matches using
+    the canonical `ratings.compute_match` helper to avoid duplicate logic.
+
+    This resets player state to defaults and replays matches in date,id order,
+    persisting per-player profile changes and per-match audit columns.
+    """
     cur = conn.cursor()
+    # reset Elo to default
     cur.execute("UPDATE Players SET elo = ?", (config.DEFAULT_ELO,))
-
-    # games played counter
-    cur.execute("SELECT id FROM Players")
-    games_played = {pid: 0 for (pid,) in cur.fetchall()}
-
-    matches = repo.get_all_matches_ordered(conn)
-
-    for match_id, p1, p2, result, date in matches:
-        cur.execute("SELECT elo FROM Players WHERE id = ?", (p1,))
-        elo1 = cur.fetchone()[0]
-        cur.execute("SELECT elo FROM Players WHERE id = ?", (p2,))
-        elo2 = cur.fetchone()[0]
-
-        g1 = games_played.get(p1, 0)
-        g2 = games_played.get(p2, 0)
-
-        k1 = elo.k_factor(g1)
-        k2 = elo.k_factor(g2)
-
-        new_elo1, new_elo2 = elo.update_elo(elo1, elo2, result, k1, k2)
-
-        # update players
-        repo.update_player_elo(conn, p1, new_elo1)
-        repo.update_player_elo(conn, p2, new_elo2)
-
-        # backfill per-match elo columns if available
-        try:
-            repo.update_match_elos(conn, match_id, elo1, new_elo1, elo2, new_elo2)
-        except Exception:
-            pass
-
-        games_played[p1] = g1 + 1
-        games_played[p2] = g2 + 1
-
-    conn.commit()
-    print("✅ Elo ratings successfully recomputed from all matches with variable K.")
-
-
-def recompute_glicko(conn):
-    cur = conn.cursor()
-    # reset glicko columns to defaults
+    # reset Glicko columns to defaults
     cur.execute("SELECT id FROM Players")
     pids = [pid for (pid,) in cur.fetchall()]
     for pid in pids:
-        cur.execute("UPDATE Players SET g2_rating = ?, g2_rd = ?, g2_vol = ? WHERE id = ?",
+        cur.execute("UPDATE Players SET g2_rating = ?, g2_rd = ?, g2_vol = ?, last_game_date = NULL, last_game_match_id = NULL WHERE id = ?",
                     (config.G2_DEFAULT_RATING, config.G2_DEFAULT_RD, config.G2_DEFAULT_VOL, pid))
-
     conn.commit()
 
-    # games played counter and last played dates
-    cur.execute("SELECT id FROM Players")
-    games_played = {pid: 0 for (pid,) in cur.fetchall()}
-    last_played = {pid: None for (pid,) in cur.fetchall()}
+    # in-memory counters used for variable-K Elo and last-played dates
+    games_played = {pid: 0 for pid in pids}
+    last_played = {pid: None for pid in pids}
 
     matches = repo.get_all_matches_ordered(conn)
-
     for match_id, p1, p2, result, date_str in matches:
-        # compute days since last game for each player
-        days1 = 0
-        days2 = 0
-        try:
-            from datetime import date as _date
-            md = _date.fromisoformat(date_str)
-            if last_played.get(p1):
-                days1 = (md - _date.fromisoformat(last_played[p1])).days
-                if days1 < 0:
-                    days1 = 0
-            if last_played.get(p2):
-                days2 = (md - _date.fromisoformat(last_played[p2])).days
-                if days2 < 0:
-                    days2 = 0
-        except Exception:
-            days1 = 0
-            days2 = 0
+        # compute using overrides so compute_match doesn't run aggregates
+        out = ratings.compute_match(conn, p1, p2, result, date_str,
+                                    games_played_override_p1=games_played.get(p1, 0),
+                                    games_played_override_p2=games_played.get(p2, 0),
+                                    last_played_override_p1=last_played.get(p1),
+                                    last_played_override_p2=last_played.get(p2))
 
-        # get current glicko for players
-        g1 = repo.get_player_glicko(conn, p1)
-        g2 = repo.get_player_glicko(conn, p2)
-        if g1 is None:
-            r1, rd1, vol1 = config.G2_DEFAULT_RATING, config.G2_DEFAULT_RD, config.G2_DEFAULT_VOL
-        else:
-            r1, rd1, vol1 = g1
-        if g2 is None:
-            r2, rd2, vol2 = config.G2_DEFAULT_RATING, config.G2_DEFAULT_RD, config.G2_DEFAULT_VOL
-        else:
-            r2, rd2, vol2 = g2
+        # persist via service layer
+        service.record_match_result(conn, match_id, p1, p2, out, date_str)
 
-        # Pre-inflate opponent RD so expected score uses opponent uncertainty
-        opp_rd_for_1 = glicko2.inflate_rd(rd2, days2)
-        opp_rd_for_2 = glicko2.inflate_rd(rd1, days1)
-
-        new_r1, new_rd1, new_vol1 = glicko2.glicko2_update(r1, rd1, vol1, r2, opp_rd_for_1, vol2, result, days=days1)
-        new_r2, new_rd2, new_vol2 = glicko2.glicko2_update(r2, rd2, vol2, r1, opp_rd_for_2, vol1, 1 - result, days=days2)
-
-        repo.update_player_glicko(conn, p1, new_r1, new_rd1, new_vol1)
-        repo.update_player_glicko(conn, p2, new_r2, new_rd2, new_vol2)
-
-        # backfill per-match glicko columns if available
-        try:
-            repo.update_match_glicko(conn, match_id, r1, new_r1, rd1, new_rd1, vol1, new_vol1,
-                                     r2, new_r2, rd2, new_rd2, vol2, new_vol2)
-        except Exception:
-            pass
-
+        # advance counters
         games_played[p1] = games_played.get(p1, 0) + 1
         games_played[p2] = games_played.get(p2, 0) + 1
-
         last_played[p1] = date_str
         last_played[p2] = date_str
 
     conn.commit()
-    print("✅ Glicko-2 ratings successfully recomputed from all matches.")
+    print("✅ Ratings successfully recomputed from all matches using compute_match.")
 
 
 def recompute(conn):
@@ -299,11 +228,11 @@ def recompute_from_match(conn, match_id: int):
         k1 = elo.k_factor(g1)
         k2 = elo.k_factor(g2)
 
-        new_elo1, new_elo2 = elo.update_elo(elo1, elo2, result, k1, k2)
+        new_elo1, new_elo2 = ratings.compute_elo_change(elo1, elo2, g1, g2, result)
 
-        # persist and update temp map
-        repo.update_player_elo(conn, p1, new_elo1)
-        repo.update_player_elo(conn, p2, new_elo2)
+        # persist and update temp map (single update per player)
+        repo.update_player_profile(conn, p1, elo=new_elo1)
+        repo.update_player_profile(conn, p2, elo=new_elo2)
         current_elo[p1] = new_elo1
         current_elo[p2] = new_elo2
 
@@ -372,8 +301,14 @@ def recompute_from_match(conn, match_id: int):
         new_r1, new_rd1, new_vol1 = glicko2.glicko2_update(r1, rd1, vol1, r2, rd2, vol2, result, days=days1)
         new_r2, new_rd2, new_vol2 = glicko2.glicko2_update(r2, rd2, vol2, r1, rd1, vol1, 1 - result, days=days2)
 
-        repo.update_player_glicko(conn, p1, new_r1, new_rd1, new_vol1)
-        repo.update_player_glicko(conn, p2, new_r2, new_rd2, new_vol2)
+        # persist Glicko + last-game together
+        d = r[4]
+        repo.update_player_profile(conn, p1,
+                                   g2_rating=new_r1, g2_rd=new_rd1, g2_vol=new_vol1,
+                                   last_game_date=d, last_game_match_id=mid)
+        repo.update_player_profile(conn, p2,
+                                   g2_rating=new_r2, g2_rd=new_rd2, g2_vol=new_vol2,
+                                   last_game_date=d, last_game_match_id=mid)
         current_g2[p1] = (new_r1, new_rd1, new_vol1)
         current_g2[p2] = (new_r2, new_rd2, new_vol2)
         # update current_last_played for replayed matches

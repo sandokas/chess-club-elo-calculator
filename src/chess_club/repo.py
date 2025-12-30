@@ -27,14 +27,39 @@ def list_players(conn) -> List[Dict]:
 
 def get_player(conn, player_id: int) -> Optional[Dict]:
     cur = conn.cursor()
-    cur.execute("SELECT id, name, elo FROM Players WHERE id = ?", (player_id,))
+    # Include last_game_date to avoid expensive aggregate queries when callers
+    # need the last-played timestamp. Keep `elo` at index 2 for backward
+    # compatibility with existing call sites.
+    cur.execute("SELECT id, name, elo, last_game_date FROM Players WHERE id = ?", (player_id,))
     return cur.fetchone()
 
 
-def update_player_elo(conn, player_id: int, elo: float):
+def update_player_profile(conn, player_id: int, elo: float = None,
+                          g2_rating: float = None, g2_rd: float = None, g2_vol: float = None,
+                          last_game_date: str = None, last_game_match_id: int = None):
+    """Update multiple player profile fields in a single statement.
+
+    Only non-None parameters will overwrite existing values.
+    """
     cur = conn.cursor()
-    cur.execute("UPDATE Players SET elo = ? WHERE id = ?", (elo, player_id))
-    conn.commit()
+    try:
+        cur.execute(
+            """
+            UPDATE Players SET
+                elo = COALESCE(?, elo),
+                g2_rating = COALESCE(?, g2_rating),
+                g2_rd = COALESCE(?, g2_rd),
+                g2_vol = COALESCE(?, g2_vol),
+                last_game_date = COALESCE(?, last_game_date),
+                last_game_match_id = COALESCE(?, last_game_match_id)
+            WHERE id = ?
+            """,
+            (elo, g2_rating, g2_rd, g2_vol, last_game_date, last_game_match_id, player_id)
+        )
+        conn.commit()
+    except Exception:
+        # Best-effort: ignore if columns don't exist or other DB issues
+        pass
 
 
 def add_tournament(conn, name: str, date: str) -> int:
@@ -138,6 +163,45 @@ def insert_match(conn, tournament_id: int, p1: int, p2: int, result: float, date
     return cur.lastrowid
 
 
+def create_match(conn, tournament_id: int, p1: int, p2: int, date: str, result: float = None) -> int:
+    """Insert a match row without a result (result is NULL).
+
+    This is used when creating scheduled matches where the result is not yet known.
+    """
+    # Prevent recording matches for completed tournaments
+    if is_tournament_completed(conn, tournament_id):
+        raise ValueError("Tournament is completed")
+    cur = conn.cursor()
+    # insert result value (may be NULL if schema allows it)
+    cur.execute(
+        "INSERT INTO Matches (tournament_id, player1_id, player2_id, result, date) VALUES (?, ?, ?, ?, ?)",
+        (tournament_id, p1, p2, result, date)
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def update_match_result(conn, match_id: int, result: float, date: str = None):
+    """High-level: update match result, compute ratings and persist audits.
+
+    This function replaces the former `apply_match_result` and updates the
+    stored match row. Rating computation and persistence must be handled by
+    the business layer (e.g. `tournament`) to keep repo free of rating logic.
+    """
+    # Update match row only; business layer must compute & persist ratings.
+    update_match_row(conn, match_id, result, date)
+    return get_match(conn, match_id)
+
+    # ensure players reference this match as last_game_match_id
+    try:
+        update_player_profile(conn, p1, last_game_match_id=match_id)
+        update_player_profile(conn, p2, last_game_match_id=match_id)
+    except Exception:
+        pass
+
+    return out
+
+
 def insert_match_with_elos(conn, tournament_id: int, p1: int, p2: int, result: float, date: str,
                  p1_elo_before: float = None, p1_elo_after: float = None,
                  p2_elo_before: float = None, p2_elo_after: float = None,
@@ -220,8 +284,12 @@ def get_match(conn, match_id: int):
     return cur.fetchone()
 
 
-def update_match_result(conn, match_id: int, result: float, date: str = None):
-    # Update a match row; higher-level code enforces tournament completed checks
+
+def update_match_row(conn, match_id: int, result: float, date: str = None):
+    """Low-level: update the match row in the DB. Kept for callers that only
+    need to modify the stored match fields without applying rating logic.
+    """
+    # Implementation identical to previous `update_match_result`
     cur = conn.cursor()
     cur.execute("SELECT id FROM Matches WHERE id = ?", (match_id,))
     row = cur.fetchone()
@@ -282,6 +350,12 @@ def get_player_summary(conn, player_id: int):
     return games_played, wins, draws, losses, last_game
 
 
+# NOTE: prefer using the canonical names defined above (add_player, add_tournament,
+# add_tournament_player, insert_match, update_match_row, update_match_result).
+# Avoid adding convenience alias wrappers here to keep the API surface minimal.
+
+
+
 
 def get_player_glicko(conn, player_id: int):
     cur = conn.cursor()
@@ -291,11 +365,6 @@ def get_player_glicko(conn, player_id: int):
         return row[0], row[1], row[2]
     return None
 
-
-def update_player_glicko(conn, player_id: int, rating: float, rd: float, vol: float):
-    cur = conn.cursor()
-    cur.execute("UPDATE Players SET g2_rating = ?, g2_rd = ?, g2_vol = ? WHERE id = ?", (rating, rd, vol, player_id))
-    conn.commit()
 
 
 def update_match_glicko(conn, match_id: int,
