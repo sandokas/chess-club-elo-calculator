@@ -79,8 +79,19 @@ def tournament_menu(conn, tid):
                 print("⚠️ All players are already in this tournament.")
                 continue
             print("\nAvailable Club Players (not yet in tournament):")
-            for pid, pname, _ in players:
-                print(f"{pid}: {pname}")
+            for pid, pname, elo_val, g2_rating, g2_rd, g2_vol in players:
+                # Prepare Elo display (explicit placeholder when missing)
+                elo_display = f"Elo:{elo_val:.1f}" if elo_val is not None else "Elo:(none)"
+
+                # Prepare G2 display (explicit placeholder when missing)
+                g2_display = f"G2:{g2_rating:.1f}" if g2_rating is not None else "G2:(none)"
+
+                if config.RATING_SYSTEM == 'glicko2':
+                    print(f"{pid}: {pname} | {g2_display}")
+                elif config.RATING_SYSTEM == 'both':
+                    print(f"{pid}: {pname} | {elo_display} / {g2_display}")
+                else:
+                    print(f"{pid}: {pname} | {elo_display}")
             pid = input("Select player ID: ").strip()
             try:
                 pid_int = int(pid)
@@ -99,7 +110,23 @@ def tournament_menu(conn, tid):
                 continue
             print("\nTournament Players:")
             for pid, pname in players:
-                print(f"{pid}: {pname}")
+                # tournament players source only provides id/name; fetch ratings once
+                p = repo.get_player(conn, pid)
+                elo_val = p[2] if p else None
+                g = repo.get_player_glicko(conn, pid)
+                g_rating = g[0] if g else None
+
+                # Elo/G2 placeholders (avoid formatting None)
+                elo_display = f"Elo:{elo_val:.1f}" if elo_val is not None else "Elo:(none)"
+
+                g2_display = f"G2:{g_rating:.1f}" if g_rating is not None else "G2:(none)"
+
+                if config.RATING_SYSTEM == 'glicko2':
+                    print(f"{pid}: {pname} | {g2_display}")
+                elif config.RATING_SYSTEM == 'both':
+                    print(f"{pid}: {pname} | {elo_display} / {g2_display}")
+                else:
+                    print(f"{pid}: {pname} | {elo_display}")
             pid1 = input("Select Player 1 ID: ").strip()
             pid2 = input("Select Player 2 ID: ").strip()
             if pid1 == pid2:
@@ -152,15 +179,13 @@ def tournament_menu(conn, tid):
                     g_part = None
 
                 if config.RATING_SYSTEM == 'both':
-                    parts = [part for part in (elo_part, g_part) if part]
-                    if parts:
-                        print(f"{d}: {outcome} | " + " | ".join(parts))
-                    else:
-                        print(f"{d}: {outcome}")
+                    elo_display = elo_part if elo_part else "Elo:(none)"
+                    g_display = g_part if g_part else "G2:(none)"
+                    print(f"{d}: {outcome} | {elo_display} | {g_display}")
                 elif config.RATING_SYSTEM == 'glicko2':
-                    print(f"{d}: {outcome} | " + (g_part if g_part else (elo_part if elo_part else "(no rating data)")))
+                    print(f"{d}: {outcome} | " + (g_part if g_part else "G2:(none)"))
                 else:
-                    print(f"{d}: {outcome} | " + (elo_part if elo_part else (g_part if g_part else "(no rating data)")))
+                    print(f"{d}: {outcome} | " + (elo_part if elo_part else "Elo:(none)"))
             print()
         elif choice == "4":
             break
@@ -218,8 +243,19 @@ def show_player_games_flow(conn):
         print("⚠️ No players in club.")
         return
     print("\nClub Players:")
-    for pid, pname, _ in players:
-        print(f"{pid}: {pname}")
+    for pid, pname, elo_val, g2_rating, g2_rd, g2_vol in players:
+        # Elo placeholder
+        elo_display = f"Elo:{elo_val:.1f}" if elo_val is not None else "Elo:(none)"
+
+        # G2 placeholder
+        g2_display = f"G2:{g2_rating:.1f}" if g2_rating is not None else "G2:(none)"
+
+        if config.RATING_SYSTEM == 'glicko2':
+            print(f"{pid}: {pname} | {g2_display}")
+        elif config.RATING_SYSTEM == 'both':
+            print(f"{pid}: {pname} | {elo_display} / {g2_display}")
+        else:
+            print(f"{pid}: {pname} | {elo_display}")
     pid_in = input("Select player ID to show games: ").strip()
     try:
         pid = int(pid_in)
@@ -269,11 +305,6 @@ def show_player_games_flow(conn):
         except Exception:
             elo_delta = None
 
-        try:
-            g_delta = None if (me_g_before is None or me_g_after is None) else round(me_g_after - me_g_before, 2)
-        except Exception:
-            g_delta = None
-
         elo_part = None
         if me_before is not None and me_after is not None:
             sign = "+" if elo_delta is not None and elo_delta > 0 else ""
@@ -286,18 +317,24 @@ def show_player_games_flow(conn):
         else:
             me_g_before, me_g_after = p2_g_before, p2_g_after
 
+        # compute G2 delta and part after we know me_g_before/me_g_after
+        g_part = None
+        try:
+            g_delta = None if (me_g_before is None or me_g_after is None) else round(me_g_after - me_g_before, 2)
+        except Exception:
+            g_delta = None
         if me_g_before is not None and me_g_after is not None:
             gsign = "+" if g_delta is not None and g_delta > 0 else ""
             g_part = f"G2: {me_g_before:.1f} → {me_g_after:.1f} ({gsign}{g_delta if g_delta is not None else '0.0'})"
 
         if config.RATING_SYSTEM == 'both':
-            parts = [p for p in (elo_part, g_part) if p]
-            combined = " | ".join(parts) if parts else "(no rating data)"
-            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | {combined}")
+            elo_display = elo_part if elo_part else "Elo:(none)"
+            g_display = g_part if g_part else "G2:(none)"
+            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | {elo_display} | {g_display}")
         elif config.RATING_SYSTEM == 'glicko2':
-            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | " + (g_part if g_part else (elo_part if elo_part else "(no rating data)")))
+            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | " + (g_part if g_part else "G2:(none)"))
         else:
-            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | " + (elo_part if elo_part else (g_part if g_part else "(no rating data)")))
+            print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | " + (elo_part if elo_part else "Elo:(none)"))
 
 
 def main():

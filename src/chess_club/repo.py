@@ -14,7 +14,14 @@ def add_player(conn, name: str, elo: float = None) -> int:
 
 def list_players(conn) -> List[Dict]:
     cur = conn.cursor()
-    cur.execute("SELECT id, name, elo FROM Players ORDER BY elo DESC")
+    # Order players according to display/ordering preference in config.
+    # If the system is set to 'glicko2' order by g2_rating, otherwise order by elo.
+    try:
+        order_by = "g2_rating" if config.RATING_SYSTEM == 'glicko2' else "elo"
+        cur.execute(f"SELECT id, name, elo, g2_rating, g2_rd, g2_vol FROM Players ORDER BY {order_by} DESC")
+    except Exception:
+        # Fallback to elo ordering if anything goes wrong
+        cur.execute("SELECT id, name, elo, g2_rating, g2_rd, g2_vol FROM Players ORDER BY elo DESC")
     return cur.fetchall()
 
 

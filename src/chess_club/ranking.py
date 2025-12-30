@@ -11,20 +11,19 @@ def show_leaderboard(conn, show_provisional: bool = True):
     official = []
     provisional = []
 
-    for pid, name, elo_rating in players:
+    for pid, name, elo_rating, g2_rating, g2_rd, g2_vol in players:
         # Determine display based on configured rating system
-        g2 = repo.get_player_glicko(conn, pid)
         if config.RATING_SYSTEM == 'glicko2':
-            display_val = g2[0] if g2 and g2[0] is not None else elo_rating
-            display_str = f"G2: {display_val:6.1f}" if isinstance(display_val, float) else str(display_val)
+            # Do not fall back to Elo when G2 is missing — show explicit placeholder.
+            display_str = f"G2: {g2_rating:6.1f}" if g2_rating is not None else "G2:(none)"
         elif config.RATING_SYSTEM == 'both':
-            g2_val = g2[0] if g2 and g2[0] is not None else None
-            if g2_val is not None:
-                display_str = f"Elo:{elo_rating:6.1f} / G2:{g2_val:6.1f}"
-            else:
-                display_str = f"Elo:{elo_rating:6.1f}"
+            # Show both values; use explicit placeholders when missing.
+            elo_part = f'Elo:{elo_rating:6.1f}' if elo_rating is not None else 'Elo:(none)'
+            g2_part = f'G2:{g2_rating:6.1f}' if g2_rating is not None else 'G2:(none)'
+
+            display_str = f"{elo_part} / {g2_part}"
         else:
-            display_str = f"Elo: {elo_rating:6.1f}"
+            display_str = f'Elo: {elo_rating:6.1f}' if elo_rating is not None else 'Elo:(none)'
 
         games_played, wins, draws, losses, last_game = repo.get_player_summary(conn, pid)
         last_game_str = last_game if last_game else "No games"
@@ -147,10 +146,7 @@ def recompute_glicko(conn):
 
 
 def recompute(conn):
-    if config.RATING_SYSTEM == 'glicko2':
-        recompute_glicko(conn)
-    elif config.RATING_SYSTEM == 'both':
-        recompute_elos(conn)
-        recompute_glicko(conn)
-    elif config.RATING_SYSTEM == 'elo':
-        recompute_elos(conn)
+    # Always recompute both systems. `RATING_SYSTEM` controls display and ordering
+    # but both systems should be recalculated behind the scenes.
+    recompute_elos(conn)
+    recompute_glicko(conn)
