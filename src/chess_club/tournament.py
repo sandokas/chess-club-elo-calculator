@@ -28,7 +28,7 @@ def create_match(conn, tournament_id: int, pid1: int, pid2: int, result: float, 
         match_id = repo.create_match(conn, tournament_id, pid1, pid2, match_date)
         # compute ratings (pure) and persist via service layer
         out = ratings.compute_match(conn, pid1, pid2, result, match_date)
-        service.record_match_result(conn, match_id, pid1, pid2, out, match_date)
+        service.record_match_result(conn, match_id, pid1, pid2, out, match_date, result)
         conn.commit()
     except Exception:
         try:
@@ -50,7 +50,7 @@ def create_match_with_result(conn, tournament_id: int, pid1: int, pid2: int, res
 
     match_id = repo.create_match(conn, tournament_id, pid1, pid2, match_date)
     out = ratings.compute_match(conn, pid1, pid2, result, match_date)
-    service.record_match_result(conn, match_id, pid1, pid2, out, match_date)
+    service.record_match_result(conn, match_id, pid1, pid2, out, match_date, result)
     p1 = repo.get_player(conn, pid1)
     p2 = repo.get_player(conn, pid2)
     return (p1[1], out.get('p1_elo_after') or out.get('p1_g2_after'), p2[1], out.get('p2_elo_after') or out.get('p2_g2_after'))

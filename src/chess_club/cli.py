@@ -70,6 +70,7 @@ def tournament_menu(conn, tid):
         print("4. Return to Main Menu")
         print("5. Update Tournament")
         print("6. Delete Tournament")
+        print("7. Delete Match")
         choice = input("Select an option: ").strip()
 
         if choice == "1":
@@ -155,7 +156,7 @@ def tournament_menu(conn, tid):
         elif choice == "3":
             rows = repo.list_matches_for_tournament(conn, tid)
             print("\n📜 Tournament Matches:")
-            for p1, p2, result, d, p1_before, p1_after, p2_before, p2_after, p1_g_before, p1_g_after, p2_g_before, p2_g_after in rows:
+            for mid, p1, p2, result, d, p1_before, p1_after, p2_before, p2_after, p1_g_before, p1_g_after, p2_g_before, p2_g_after in rows:
                 if result == 1:
                     outcome = f"{p1} beat {p2}"
                 elif result == 0:
@@ -181,11 +182,11 @@ def tournament_menu(conn, tid):
                 if config.RATING_SYSTEM == 'both':
                     elo_display = elo_part if elo_part else "Elo:(none)"
                     g_display = g_part if g_part else "G2:(none)"
-                    print(f"{d}: {outcome} | {elo_display} | {g_display}")
+                    print(f"{d} [id {mid}]: {outcome} | {elo_display} | {g_display}")
                 elif config.RATING_SYSTEM == 'glicko2':
-                    print(f"{d}: {outcome} | " + (g_part if g_part else "G2:(none)"))
+                    print(f"{d} [id {mid}]: {outcome} | " + (g_part if g_part else "G2:(none)"))
                 else:
-                    print(f"{d}: {outcome} | " + (elo_part if elo_part else "Elo:(none)"))
+                    print(f"{d} [id {mid}]: {outcome} | " + (elo_part if elo_part else "Elo:(none)"))
             print()
         elif choice == "4":
             break
@@ -426,6 +427,39 @@ def main():
         elif choice == "6":
             ranking.recompute(conn)
         elif choice == "7":
+            # Delete a specific match from the tournament
+            rows = repo.list_matches_for_tournament(conn, tid)
+            if not rows:
+                print("⚠️ No matches to delete in this tournament.")
+                continue
+            print("\nTournament Matches (showing IDs):")
+            for mid, p1, p2, result, d, *_ in rows:
+                res = "?" if result is None else ("1" if result == 1 else ("0.5" if result == 0.5 else "0"))
+                print(f"{mid}: {d} - {p1} vs {p2} (result={res})")
+            mid_in = input("Enter match ID to delete (or leave blank to cancel): ").strip()
+            if not mid_in:
+                print("Deletion cancelled.")
+                continue
+            try:
+                mid = int(mid_in)
+            except ValueError:
+                print("⚠️ Invalid match ID.")
+                continue
+            m = repo.get_match(conn, mid)
+            if not m:
+                print("⚠️ Match not found.")
+                continue
+            confirm = input(f"Type 'yes' to permanently delete match {mid}: ").strip().lower()
+            if confirm != 'yes':
+                print("Deletion cancelled.")
+                continue
+            try:
+                repo.delete_match(conn, mid)
+                ranking.recompute(conn)
+                print("✅ Match deleted and ratings recomputed.")
+            except Exception as e:
+                print("⚠️ Error deleting match:", e)
+            continue
             show_prov = not show_prov
             state = "ON" if show_prov else "OFF"
             print(f"🔁 Provisional players display is now {state}.")

@@ -238,14 +238,17 @@ def insert_match_with_elos(conn, tournament_id: int, p1: int, p2: int, result: f
             tournament_id, player1_id, player2_id, result, date,
             player1_elo_before, player1_elo_after, player2_elo_before, player2_elo_after,
             player1_g2_rating_before, player1_g2_rating_after, player1_g2_rd_before, player1_g2_rd_after, player1_g2_vol_before, player1_g2_vol_after,
-            player2_g2_rating_before, player2_g2_rating_after, player2_g2_rd_before, player2_g2_rd_after, player2_g2_vol_before, player2_g2_vol_after
+            player2_g2_rating_before, player2_g2_rating_after, player2_g2_rd_before, player2_g2_rd_after, player2_g2_vol_before, player2_g2_vol_after,
             player1_last_played_before, player2_last_played_before
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (tournament_id, p1, p2, result, date, p1_elo_before, p1_elo_after, p2_elo_before, p2_elo_after,
-         p1_g2_before, p1_g2_after, p1_g2_rd_before, p1_g2_rd_after, p1_g2_vol_before, p1_g2_vol_after,
-         p2_g2_before, p2_g2_after, p2_g2_rd_before, p2_g2_rd_after, p2_g2_vol_before, p2_g2_vol_after,
-         p1_last_played_before, p2_last_played_before)
+        (
+            tournament_id, p1, p2, result, date,
+            p1_elo_before, p1_elo_after, p2_elo_before, p2_elo_after,
+            p1_g2_before, p1_g2_after, p1_g2_rd_before, p1_g2_rd_after, p1_g2_vol_before, p1_g2_vol_after,
+            p2_g2_before, p2_g2_after, p2_g2_rd_before, p2_g2_rd_after, p2_g2_vol_before, p2_g2_vol_after,
+            p1_last_played_before, p2_last_played_before
+        )
     )
     conn.commit()
     return cur.lastrowid
@@ -270,13 +273,11 @@ def list_matches_for_tournament(conn, tournament_id: int):
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT p1.name, p2.name, m.result, m.date,
+        SELECT m.id, p1.name, p2.name, m.result, m.date,
                m.player1_elo_before, m.player1_elo_after,
                m.player2_elo_before, m.player2_elo_after,
                m.player1_g2_rating_before, m.player1_g2_rating_after,
-               m.player1_g2_rd_before, m.player1_g2_rd_after, m.player1_g2_vol_before, m.player1_g2_vol_after,
-               m.player2_g2_rating_before, m.player2_g2_rating_after,
-               m.player2_g2_rd_before, m.player2_g2_rd_after, m.player2_g2_vol_before, m.player2_g2_vol_after
+               m.player2_g2_rating_before, m.player2_g2_rating_after
         FROM Matches m
         JOIN Players p1 ON m.player1_id = p1.id
         JOIN Players p2 ON m.player2_id = p2.id
@@ -286,6 +287,12 @@ def list_matches_for_tournament(conn, tournament_id: int):
         (tournament_id,)
     )
     return cur.fetchall()
+
+
+def delete_match(conn, match_id: int):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM Matches WHERE id = ?", (match_id,))
+    conn.commit()
 
 
 def get_all_matches_ordered(conn):

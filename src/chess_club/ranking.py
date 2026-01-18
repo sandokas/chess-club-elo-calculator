@@ -89,8 +89,8 @@ def recompute(conn):
                                     last_played_override_p1=last_played.get(p1),
                                     last_played_override_p2=last_played.get(p2))
 
-        # persist via service layer
-        service.record_match_result(conn, match_id, p1, p2, out, date_str)
+        # persist via service layer (include result so DB row stores it)
+        service.record_match_result(conn, match_id, p1, p2, out, date_str, result)
 
         # advance counters
         games_played[p1] = games_played.get(p1, 0) + 1
