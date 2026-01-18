@@ -150,6 +150,22 @@ def games_played_for_player(conn, player_id: int) -> int:
     return cur.fetchone()[0]
 
 
+def delete_player(conn, player_id: int):
+    """Remove a player and all their associations from the database.
+
+    This deletes tournament registrations for the player, any matches where
+    they participated, and finally the player row itself.
+    """
+    cur = conn.cursor()
+    # remove tournament registrations
+    cur.execute("DELETE FROM TournamentPlayers WHERE player_id = ?", (player_id,))
+    # remove matches involving the player
+    cur.execute("DELETE FROM Matches WHERE player1_id = ? OR player2_id = ?", (player_id, player_id))
+    # remove the player row
+    cur.execute("DELETE FROM Players WHERE id = ?", (player_id,))
+    conn.commit()
+
+
 def insert_match(conn, tournament_id: int, p1: int, p2: int, result: float, date: str) -> int:
     # Prevent recording matches for completed tournaments
     if is_tournament_completed(conn, tournament_id):

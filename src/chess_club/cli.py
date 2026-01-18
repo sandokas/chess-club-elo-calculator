@@ -337,6 +337,62 @@ def show_player_games_flow(conn):
             print(f"{mdate} | Tournament: {tname or '(none)'} | {me_name} {outcome} vs {opp_name} | " + (elo_part if elo_part else "Elo:(none)"))
 
 
+def delete_player_flow(conn):
+    players = repo.list_players(conn)
+    if not players:
+        print("⚠️ No players in club.")
+        return
+    print("\nClub Players:")
+    for pid, pname, elo_val, g2_rating, g2_rd, g2_vol in players:
+        elo_display = f"Elo:{elo_val:.1f}" if elo_val is not None else "Elo:(none)"
+        # prepare G2 display safely
+        g2_display = f"G2:{g2_rating:.1f}" if g2_rating is not None else "G2:(none)"
+        if config.RATING_SYSTEM == 'glicko2':
+            print(f"{pid}: {pname} | {g2_display}")
+        elif config.RATING_SYSTEM == 'both':
+            print(f"{pid}: {pname} | {elo_display} / {g2_display}")
+        else:
+            print(f"{pid}: {pname} | {elo_display}")
+
+    pid_in = input("Select player ID to delete (or leave blank to cancel): ").strip()
+    if not pid_in:
+        print("Deletion cancelled.")
+        return
+    try:
+        pid = int(pid_in)
+    except ValueError:
+        print("⚠️ Invalid player ID.")
+        return
+
+    p = repo.get_player(conn, pid)
+    if not p:
+        print("⚠️ Player not found.")
+        return
+
+    try:
+        games_count = repo.games_played_for_player(conn, pid)
+    except Exception:
+        games_count = 0
+
+    if games_count > 0:
+        confirm = input(f"Player has {games_count} recorded games. Type 'yes' to permanently delete player and their games: ").strip().lower()
+        if confirm != 'yes':
+            print("Deletion cancelled.")
+            return
+    else:
+        confirm = input("Delete this player? Type 'yes' to confirm: ").strip().lower()
+        if confirm != 'yes':
+            print("Deletion cancelled.")
+            return
+
+    try:
+        repo.delete_player(conn, pid)
+        ranking.recompute(conn)
+        print("✅ Player and their games deleted. Ratings recomputed.")
+    except Exception as e:
+        print("⚠️ Error deleting player:", e)
+
+
 def main():
     conn = db.get_connection(config.DB_PATH)
     db.init_db(conn)
@@ -352,6 +408,7 @@ def main():
         print("6. Recompute ELOs")
         print(f"7. Toggle Provisional in Leaderboard (currently: {state})")
         print("8. Show Player Games")
+        print("9. Delete Player")
         choice = input("Select an option: ").strip()
 
         if choice == "1":
@@ -374,6 +431,8 @@ def main():
             print(f"🔁 Provisional players display is now {state}.")
         elif choice == "8":
             show_player_games_flow(conn)
+        elif choice == "9":
+            delete_player_flow(conn)
         else:
             print("⚠️ Invalid choice. Try again.")
 
