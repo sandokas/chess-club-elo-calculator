@@ -22,7 +22,8 @@ def test_record_match_logic_updates_elos_and_inserts_match():
     # match recorded
     matches = repo.list_matches_for_tournament(conn, tid)
     assert len(matches) == 1
-    assert matches[0][0] == name1
+    # repo.list_matches_for_tournament now returns (id, p1_name, p2_name, ...)
+    assert matches[0][1] == name1
 
 
 def test_cannot_modify_completed_tournament_until_reopened():

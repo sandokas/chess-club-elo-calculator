@@ -32,17 +32,16 @@ def record_match_result(conn, match_id: int, p1_id: int, p2_id: int, computed: d
                                    computed.get('p2_elo_before'), computed.get('p2_elo_after'))
         except Exception:
             pass
-
-            # Ensure the stored match row records the result and date when provided
-            try:
-                if result is not None and match_date is not None:
-                    cur.execute("UPDATE Matches SET result = ?, date = ? WHERE id = ?", (result, match_date, match_id))
-                elif result is not None:
-                    cur.execute("UPDATE Matches SET result = ? WHERE id = ?", (result, match_id))
-                elif match_date is not None:
-                    cur.execute("UPDATE Matches SET date = ? WHERE id = ?", (match_date, match_id))
-            except Exception:
-                pass
+        # Ensure the stored match row records the result and date when provided
+        try:
+            if result is not None and match_date is not None:
+                cur.execute("UPDATE Matches SET result = ?, date = ? WHERE id = ?", (result, match_date, match_id))
+            elif result is not None:
+                cur.execute("UPDATE Matches SET result = ? WHERE id = ?", (result, match_id))
+            elif match_date is not None:
+                cur.execute("UPDATE Matches SET date = ? WHERE id = ?", (match_date, match_id))
+        except Exception:
+            pass
 
         try:
             repo.update_match_glicko(conn, match_id,

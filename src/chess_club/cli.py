@@ -71,6 +71,7 @@ def tournament_menu(conn, tid):
         print("5. Update Tournament")
         print("6. Delete Tournament")
         print("7. Delete Match")
+        print("8. Update Match")
         choice = input("Select an option: ").strip()
 
         if choice == "1":
@@ -234,6 +235,93 @@ def tournament_menu(conn, tid):
             except Exception as e:
                 print("⚠️ Error deleting tournament:", e)
                 continue
+        elif choice == "7":
+            # Delete a specific match from this tournament
+            rows = repo.list_matches_for_tournament(conn, tid)
+            if not rows:
+                print("⚠️ No matches to delete in this tournament.")
+                continue
+            print("\nTournament Matches (showing IDs):")
+            for row in rows:
+                mid, p1, p2, result, d = row[:5]
+                res = "?" if result is None else ("1" if result == 1 else ("0.5" if result == 0.5 else "0"))
+                print(f"{mid}: {d} - {p1} vs {p2} (result={res})")
+            mid_in = input("Enter match ID to delete (or leave blank to cancel): ").strip()
+            if not mid_in:
+                print("Deletion cancelled.")
+                continue
+            try:
+                mid = int(mid_in)
+            except ValueError:
+                print("⚠️ Invalid match ID.")
+                continue
+            m = repo.get_match(conn, mid)
+            if not m:
+                print("⚠️ Match not found.")
+                continue
+            confirm = input(f"Type 'yes' to permanently delete match {mid}: ").strip().lower()
+            if confirm != 'yes':
+                print("Deletion cancelled.")
+                continue
+            try:
+                repo.delete_match(conn, mid)
+                ranking.recompute(conn)
+                print("✅ Match deleted and ratings recomputed.")
+            except Exception as e:
+                print("⚠️ Error deleting match:", e)
+            continue
+        elif choice == "8":
+            # Update result/date for a specific match
+            rows = repo.list_matches_for_tournament(conn, tid)
+            if not rows:
+                print("⚠️ No matches to update in this tournament.")
+                continue
+            print("\nTournament Matches (showing IDs):")
+            for row in rows:
+                mid, p1, p2, result, d = row[:5]
+                res = "?" if result is None else ("1" if result == 1 else ("0.5" if result == 0.5 else "0"))
+                print(f"{mid}: {d} - {p1} vs {p2} (result={res})")
+            mid_in = input("Enter match ID to update (or leave blank to cancel): ").strip()
+            if not mid_in:
+                print("Update cancelled.")
+                continue
+            try:
+                mid = int(mid_in)
+            except ValueError:
+                print("⚠️ Invalid match ID.")
+                continue
+            m = repo.get_match(conn, mid)
+            if not m:
+                print("⚠️ Match not found.")
+                continue
+            # ensure match is part of this tournament
+            if m[1] != tid:
+                print("⚠️ Match does not belong to this tournament.")
+                continue
+            old_result = m[4]
+            old_date = m[5]
+            new_result_in = input(f"New result (1 = P1 wins, 0 = P2 wins, 0.5 = draw) (leave blank to keep '{old_result}'): ").strip()
+            if new_result_in == "":
+                new_result = old_result
+            else:
+                try:
+                    new_result = float(new_result_in)
+                    if new_result not in [0, 0.5, 1]:
+                        raise ValueError
+                except ValueError:
+                    print("⚠️ Invalid result.")
+                    continue
+            new_date_in = input(f"New date (YYYY-MM-DD) (leave blank to keep '{old_date}'): ").strip()
+            new_date = new_date_in if new_date_in else None
+            try:
+                fallback = tournament.update_match(conn, mid, new_result, new_date)
+                if fallback:
+                    print("✅ Match updated. Full ratings recompute was performed.")
+                else:
+                    print("✅ Match updated. Targeted recompute applied.")
+            except Exception as e:
+                print("⚠️ Error updating match:", e)
+            continue
         else:
             print("⚠️ Invalid choice. Try again.")
 
@@ -270,11 +358,15 @@ def show_player_games_flow(conn):
         return
 
     print(f"\n📚 Matches for player ID {pid}:")
-    for (mid, tname, mdate,
-        p1id, p1name, p1_before, p1_after,
-        p2id, p2name, p2_before, p2_after,
-        p1_g_before, p1_g_after, p2_g_before, p2_g_after,
-        result) in matches:
+    for row in matches:
+        (
+            mid, tname, mdate,
+            p1id, p1name, p1_before, p1_after,
+            p2id, p2name, p2_before, p2_after,
+            p1_g_before, p1_g_after, p1_g_rd_before, p1_g_rd_after, p1_g_vol_before, p1_g_vol_after,
+            p2_g_before, p2_g_after, p2_g_rd_before, p2_g_rd_after, p2_g_vol_before, p2_g_vol_after,
+            result,
+        ) = row
 
         if pid == p1id:
             me_name, opp_name = p1name, p2name
@@ -427,39 +519,6 @@ def main():
         elif choice == "6":
             ranking.recompute(conn)
         elif choice == "7":
-            # Delete a specific match from the tournament
-            rows = repo.list_matches_for_tournament(conn, tid)
-            if not rows:
-                print("⚠️ No matches to delete in this tournament.")
-                continue
-            print("\nTournament Matches (showing IDs):")
-            for mid, p1, p2, result, d, *_ in rows:
-                res = "?" if result is None else ("1" if result == 1 else ("0.5" if result == 0.5 else "0"))
-                print(f"{mid}: {d} - {p1} vs {p2} (result={res})")
-            mid_in = input("Enter match ID to delete (or leave blank to cancel): ").strip()
-            if not mid_in:
-                print("Deletion cancelled.")
-                continue
-            try:
-                mid = int(mid_in)
-            except ValueError:
-                print("⚠️ Invalid match ID.")
-                continue
-            m = repo.get_match(conn, mid)
-            if not m:
-                print("⚠️ Match not found.")
-                continue
-            confirm = input(f"Type 'yes' to permanently delete match {mid}: ").strip().lower()
-            if confirm != 'yes':
-                print("Deletion cancelled.")
-                continue
-            try:
-                repo.delete_match(conn, mid)
-                ranking.recompute(conn)
-                print("✅ Match deleted and ratings recomputed.")
-            except Exception as e:
-                print("⚠️ Error deleting match:", e)
-            continue
             show_prov = not show_prov
             state = "ON" if show_prov else "OFF"
             print(f"🔁 Provisional players display is now {state}.")

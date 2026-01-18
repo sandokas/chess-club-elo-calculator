@@ -36,6 +36,7 @@ def test_record_match_result_persists_profiles_and_match_audits():
     matches = repo.list_matches_for_tournament(conn, tid)
     assert len(matches) == 1
     row = matches[0]
-    # row[4] = player1_elo_before, row[5] = player1_elo_after
-    assert row[4] == summary.get('p1_elo_before')
-    assert row[5] == summary.get('p1_elo_after')
+    # with the explicit SELECT ordering in repo.list_matches_for_tournament,
+    # indices are: 0=id,1=p1_name,2=p2_name,3=result,4=date,5=player1_elo_before,6=player1_elo_after
+    assert row[5] == summary.get('p1_elo_before')
+    assert row[6] == summary.get('p1_elo_after')

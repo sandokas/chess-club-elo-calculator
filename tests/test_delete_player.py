@@ -34,8 +34,9 @@ def test_delete_player_removes_player_matches_and_registrations():
     assert repo.get_player(conn, p1) is None
 
     # matches involving player removed
-    matches_after = repo.list_matches_for_tournament(conn, tid)
-    assert all((p1 not in (row[0], row[1])) for row in matches_after)
+    # Ensure no remaining matches reference the deleted player's id
+    matches_after = repo.get_all_matches_ordered(conn)
+    assert all(p1 not in (row[1], row[2]) for row in matches_after)
 
     # tournament registrations no longer include the player
     tp_after = repo.get_tournament_players(conn, tid)
