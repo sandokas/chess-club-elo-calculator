@@ -17,3 +17,10 @@ venv/
 .vscode/
 
 chessclub.db-journal
+
+# Node / TypeScript workspace
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
