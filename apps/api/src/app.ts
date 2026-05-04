@@ -1,5 +1,11 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
+
+type HttpError = Error & { statusCode?: number };
+
+function asHttpError(error: unknown): HttpError {
+  return error instanceof Error ? error : new Error("Unknown server error");
+}
 import { createPool } from "@chess-club/db";
 
 export type AppOptions = {
@@ -17,11 +23,12 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
   });
 
   app.setErrorHandler((error, _request, reply) => {
-    app.log.error(error);
-    const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+    const httpError = asHttpError(error);
+    app.log.error(httpError);
+    const statusCode = httpError.statusCode && httpError.statusCode >= 400 ? httpError.statusCode : 500;
     return reply.status(statusCode).send({
-      error: statusCode === 500 ? "Internal Server Error" : error.name,
-      message: statusCode === 500 ? "Unexpected server error." : error.message
+      error: statusCode === 500 ? "Internal Server Error" : httpError.name,
+      message: statusCode === 500 ? "Unexpected server error." : httpError.message
     });
   });
 

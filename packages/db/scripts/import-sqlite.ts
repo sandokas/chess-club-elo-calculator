@@ -1,9 +1,10 @@
 import Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import pg from "pg";
-import { loadEnv } from "@chess-club/config";
+import { loadImportEnv } from "@chess-club/config";
 import { defaultRatingConfig, recomputeRatings, type RatingConfig } from "@chess-club/core";
+
 
 type LegacyPlayer = {
   id: number;
@@ -55,8 +56,11 @@ type LegacyMatch = {
   player2_last_played_before: string | null;
 };
 
-function loadRatingConfig(): RatingConfig {
-  const businessConfigPath = resolve(process.cwd(), "../../configs/business_config.json");
+function resolveFromCwd(path: string): string {
+  return isAbsolute(path) ? path : resolve(process.cwd(), path);
+}
+
+function loadRatingConfig(businessConfigPath = resolve(process.cwd(), "configs/business_config.json")): RatingConfig {
   try {
     const parsed = JSON.parse(readFileSync(businessConfigPath, "utf8")) as Record<string, unknown>;
     return {
@@ -77,7 +81,7 @@ function loadRatingConfig(): RatingConfig {
   }
 }
 
-async function one<T>(client: pg.PoolClient, sql: string, values: unknown[]): Promise<T> {
+async function one<T extends pg.QueryResultRow>(client: pg.PoolClient, sql: string, values: unknown[]): Promise<T> {
   const result = await client.query<T>(sql, values);
   const row = result.rows[0];
   if (!row) {
@@ -94,12 +98,14 @@ function diff(a: number | null | undefined, b: number | null | undefined): numbe
 }
 
 async function main(): Promise<void> {
-  const env = loadEnv();
-  const sqlitePath = resolve(process.cwd(), "../../", env.SQLITE_DB_PATH);
+  const env = loadImportEnv();
+  const sqlitePath = resolveFromCwd(env.IMPORT_SQLITE_PATH);
   const sqlite = new Database(sqlitePath, { readonly: true });
-  const pool = new pg.Pool({ connectionString: env.DATABASE_URL });
+  const pool = new pg.Pool({ connectionString: env.IMPORT_TARGET_DATABASE_URL });
   const client = await pool.connect();
-  const ratingConfig = loadRatingConfig();
+  const ratingConfig = loadRatingConfig(
+    env.IMPORT_BUSINESS_CONFIG_PATH ? resolveFromCwd(env.IMPORT_BUSINESS_CONFIG_PATH) : undefined
+  );
 
   const legacyPlayers = sqlite.prepare("SELECT * FROM Players ORDER BY id").all() as LegacyPlayer[];
   const legacyTournaments = sqlite.prepare("SELECT * FROM Tournaments ORDER BY id").all() as LegacyTournament[];
@@ -121,7 +127,7 @@ async function main(): Promise<void> {
         ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
         RETURNING id
       `,
-      [env.INITIAL_CLUB_NAME, env.INITIAL_CLUB_SLUG]
+      [env.IMPORT_INITIAL_CLUB_NAME, env.IMPORT_INITIAL_CLUB_SLUG]
     );
 
     const admin = await one<{ id: string }>(
@@ -132,7 +138,7 @@ async function main(): Promise<void> {
         ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
         RETURNING id
       `,
-      [env.INITIAL_ADMIN_EMAIL, env.INITIAL_ADMIN_NAME]
+      [env.IMPORT_INITIAL_ADMIN_EMAIL, env.IMPORT_INITIAL_ADMIN_NAME]
     );
 
     await client.query(
@@ -141,7 +147,7 @@ async function main(): Promise<void> {
         VALUES ($1, 'password', $2, $2)
         ON CONFLICT (provider, provider_subject) DO NOTHING
       `,
-      [admin.id, env.INITIAL_ADMIN_EMAIL]
+      [admin.id, env.IMPORT_INITIAL_ADMIN_EMAIL]
     );
 
     await client.query(
