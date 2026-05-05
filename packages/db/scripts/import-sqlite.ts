@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { config as loadDotenv } from "dotenv";
 import pg from "pg";
 import { loadImportEnv } from "@chess-club/config";
 import { defaultRatingConfig, recomputeRatings, type RatingConfig } from "@chess-club/core";
@@ -56,11 +57,21 @@ type LegacyMatch = {
   player2_last_played_before: string | null;
 };
 
-function resolveFromCwd(path: string): string {
-  return isAbsolute(path) ? path : resolve(process.cwd(), path);
+function resolveFromBase(path: string, basePath: string): string {
+  return isAbsolute(path) ? path : resolve(basePath, path);
 }
 
-function loadRatingConfig(businessConfigPath = resolve(process.cwd(), "configs/business_config.json")): RatingConfig {
+function loadImportEnvFile(): string {
+  for (const path of [resolve(process.cwd(), ".env.import"), resolve(process.cwd(), "../../.env.import")]) {
+    if (existsSync(path)) {
+      loadDotenv({ path });
+      return dirname(path);
+    }
+  }
+  return process.cwd();
+}
+
+function loadRatingConfig(businessConfigPath: string): RatingConfig {
   try {
     const parsed = JSON.parse(readFileSync(businessConfigPath, "utf8")) as Record<string, unknown>;
     return {
@@ -98,13 +109,16 @@ function diff(a: number | null | undefined, b: number | null | undefined): numbe
 }
 
 async function main(): Promise<void> {
+  const importEnvDir = loadImportEnvFile();
   const env = loadImportEnv();
-  const sqlitePath = resolveFromCwd(env.IMPORT_SQLITE_PATH);
+  const sqlitePath = resolveFromBase(env.IMPORT_SQLITE_PATH, importEnvDir);
   const sqlite = new Database(sqlitePath, { readonly: true });
   const pool = new pg.Pool({ connectionString: env.IMPORT_TARGET_DATABASE_URL });
   const client = await pool.connect();
   const ratingConfig = loadRatingConfig(
-    env.IMPORT_BUSINESS_CONFIG_PATH ? resolveFromCwd(env.IMPORT_BUSINESS_CONFIG_PATH) : undefined
+    env.IMPORT_BUSINESS_CONFIG_PATH
+      ? resolveFromBase(env.IMPORT_BUSINESS_CONFIG_PATH, importEnvDir)
+      : resolve(importEnvDir, "configs/business_config.json")
   );
 
   const legacyPlayers = sqlite.prepare("SELECT * FROM Players ORDER BY id").all() as LegacyPlayer[];
@@ -144,8 +158,10 @@ async function main(): Promise<void> {
     await client.query(
       `
         INSERT INTO auth_identities (user_id, provider, provider_subject, email)
-        VALUES ($1, 'password', $2, $2)
-        ON CONFLICT (provider, provider_subject) DO NOTHING
+        VALUES ($1, 'password', $2::text, $2::varchar)
+        ON CONFLICT (provider, provider_subject) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          email = EXCLUDED.email
       `,
       [admin.id, env.IMPORT_INITIAL_ADMIN_EMAIL]
     );
@@ -180,6 +196,7 @@ async function main(): Promise<void> {
           )
           VALUES ($1, $2, $3, $4, $5, $6, $7)
           ON CONFLICT (player_id) DO UPDATE SET
+            club_id = EXCLUDED.club_id,
             elo = EXCLUDED.elo,
             glicko_rating = EXCLUDED.glicko_rating,
             glicko_rd = EXCLUDED.glicko_rd,
@@ -266,6 +283,24 @@ async function main(): Promise<void> {
             result = EXCLUDED.result,
             played_on = EXCLUDED.played_on,
             status = EXCLUDED.status,
+            white_elo_before = EXCLUDED.white_elo_before,
+            white_elo_after = EXCLUDED.white_elo_after,
+            black_elo_before = EXCLUDED.black_elo_before,
+            black_elo_after = EXCLUDED.black_elo_after,
+            white_glicko_rating_before = EXCLUDED.white_glicko_rating_before,
+            white_glicko_rating_after = EXCLUDED.white_glicko_rating_after,
+            white_glicko_rd_before = EXCLUDED.white_glicko_rd_before,
+            white_glicko_rd_after = EXCLUDED.white_glicko_rd_after,
+            white_glicko_vol_before = EXCLUDED.white_glicko_vol_before,
+            white_glicko_vol_after = EXCLUDED.white_glicko_vol_after,
+            black_glicko_rating_before = EXCLUDED.black_glicko_rating_before,
+            black_glicko_rating_after = EXCLUDED.black_glicko_rating_after,
+            black_glicko_rd_before = EXCLUDED.black_glicko_rd_before,
+            black_glicko_rd_after = EXCLUDED.black_glicko_rd_after,
+            black_glicko_vol_before = EXCLUDED.black_glicko_vol_before,
+            black_glicko_vol_after = EXCLUDED.black_glicko_vol_after,
+            white_last_played_before = EXCLUDED.white_last_played_before,
+            black_last_played_before = EXCLUDED.black_last_played_before,
             updated_at = now()
           RETURNING id
         `,
