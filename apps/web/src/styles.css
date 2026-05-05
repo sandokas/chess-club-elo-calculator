@@ -19,13 +19,21 @@ body {
 
 .app-shell {
   min-height: 100vh;
-  display: grid;
-  place-items: center;
   padding: 32px;
 }
 
 .status-panel {
   width: min(720px, 100%);
+  margin: 15vh auto 0;
+}
+
+.dashboard {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+.hero {
+  margin-bottom: 28px;
 }
 
 .eyebrow {
@@ -80,6 +88,124 @@ h1 {
   background: #d9480f;
 }
 
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card,
+.panel,
+.tournament-card {
+  border: 1px solid #d6ded8;
+  background: #ffffff;
+  box-shadow: 0 14px 36px rgb(31 41 51 / 8%);
+}
+
+.stat-card {
+  padding: 20px;
+  border-radius: 12px;
+}
+
+.stat-card p {
+  margin: 0 0 8px;
+  color: #52616b;
+  font-weight: 700;
+}
+
+.stat-card strong {
+  font-size: 2.3rem;
+  line-height: 1;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.panel {
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid #e5ebe7;
+}
+
+.panel-heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.panel-heading span {
+  color: #52616b;
+  font-size: 0.9rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 13px 20px;
+  border-bottom: 1px solid #edf1ee;
+  text-align: left;
+  white-space: nowrap;
+}
+
+th {
+  color: #52616b;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.tournament-list {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.tournament-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.tournament-card h3,
+.tournament-card p {
+  margin: 0;
+}
+
+.tournament-card p,
+.tournament-meta {
+  color: #52616b;
+}
+
+.tournament-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
 .health-label {
   margin: 0 0 4px;
   font-weight: 700;
@@ -87,4 +213,23 @@ h1 {
 
 .health-card p {
   margin: 0;
+}
+
+@media (max-width: 820px) {
+  .app-shell {
+    padding: 20px;
+  }
+
+  .stats-grid,
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tournament-card {
+    display: grid;
+  }
+
+  .tournament-meta {
+    justify-items: start;
+  }
 }

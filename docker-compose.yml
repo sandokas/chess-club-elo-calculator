@@ -17,33 +17,43 @@ services:
 
   api:
     image: node:22-alpine
+    user: "node"
     working_dir: /workspace
-    command: sh -c "corepack enable && pnpm install && pnpm --filter @chess-club/db db:migrate && pnpm --filter @chess-club/api dev"
+    command: sh -c "corepack pnpm install && corepack pnpm --filter @chess-club/db db:migrate && corepack pnpm --filter @chess-club/api dev"
     environment:
       NODE_ENV: development
       DATABASE_URL: postgres://chess_club:chess_club@postgres:5432/chess_club
       API_HOST: 0.0.0.0
       API_PORT: 4000
+      XDG_DATA_HOME: /home/node/.local/share
+      COREPACK_HOME: /home/node/.cache/corepack
+      PNPM_HOME: /home/node/.local/share/pnpm
+      NPM_CONFIG_CACHE: /home/node/.npm
     ports:
       - "4000:4000"
     volumes:
       - .:/workspace
-      - pnpm_store:/root/.local/share/pnpm/store
+      - pnpm_store:/home/node/.local/share/pnpm/store
     depends_on:
       postgres:
         condition: service_healthy
 
   web:
     image: node:22-alpine
+    user: "node"
     working_dir: /workspace
-    command: sh -c "corepack enable && pnpm install && pnpm --filter @chess-club/web dev --host 0.0.0.0"
+    command: sh -c "corepack pnpm install && corepack pnpm --filter @chess-club/web dev --host 0.0.0.0"
     environment:
       VITE_API_BASE_URL: http://localhost:4000
+      XDG_DATA_HOME: /home/node/.local/share
+      COREPACK_HOME: /home/node/.cache/corepack
+      PNPM_HOME: /home/node/.local/share/pnpm
+      NPM_CONFIG_CACHE: /home/node/.npm
     ports:
       - "5173:5173"
     volumes:
       - .:/workspace
-      - pnpm_store:/root/.local/share/pnpm/store
+      - pnpm_store:/home/node/.local/share/pnpm/store
     depends_on:
       - api
 
