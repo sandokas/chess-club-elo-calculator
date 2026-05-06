@@ -16,6 +16,10 @@ type ClubParams = {
   clubId: string;
 };
 
+type TournamentParams = {
+  id: string;
+};
+
 export async function createApp(options: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true
@@ -152,6 +156,90 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.clubId]
       );
       return { leaderboard: result.rows };
+    } finally {
+      await pool.end();
+    }
+  });
+
+  app.get<{ Params: TournamentParams }>("/tournaments/:id", async (request) => {
+    const pool = createPool();
+    try {
+      const tournamentResult = await pool.query(
+        `
+          SELECT
+            t.id,
+            t.name,
+            t.starts_on AS "startsOn",
+            t.format,
+            t.status,
+            t.legacy_id AS "legacyId",
+            COUNT(DISTINCT tp.player_id)::int AS "playerCount",
+            COUNT(DISTINCT m.id)::int AS "matchCount"
+          FROM tournaments t
+          LEFT JOIN tournament_players tp ON tp.tournament_id = t.id
+          LEFT JOIN matches m ON m.tournament_id = t.id
+          WHERE t.id = $1
+          GROUP BY t.id
+        `,
+        [request.params.id]
+      );
+
+      if (tournamentResult.rows.length === 0) {
+        return { error: "Tournament not found" };
+      }
+
+      const tournament = tournamentResult.rows[0];
+
+      const matchesResult = await pool.query(
+        `
+          SELECT
+            m.id,
+            m.white_player_id AS "whitePlayerId",
+            wp.display_name AS "whitePlayerName",
+            m.black_player_id AS "blackPlayerId",
+            bp.display_name AS "blackPlayerName",
+            m.result,
+            m.played_on AS "playedOn",
+            m.board_number AS "boardNumber"
+          FROM matches m
+          JOIN players wp ON wp.id = m.white_player_id
+          JOIN players bp ON bp.id = m.black_player_id
+          WHERE m.tournament_id = $1
+          ORDER BY m.board_number ASC NULLS LAST, m.played_on ASC, m.id ASC
+        `,
+        [request.params.id]
+      );
+
+      const standingsResult = await pool.query(
+        `
+          SELECT
+            p.id AS "playerId",
+            p.display_name AS "playerName",
+            COUNT(CASE WHEN (m.white_player_id = p.id AND m.result = 1) OR (m.black_player_id = p.id AND m.result = 0) THEN 1 END)::int AS wins,
+            COUNT(CASE WHEN m.result = 0.5 THEN 1 END)::int AS draws,
+            COUNT(CASE WHEN (m.white_player_id = p.id AND m.result = 0) OR (m.black_player_id = p.id AND m.result = 1) THEN 1 END)::int AS losses,
+            COALESCE(SUM(
+              CASE
+                WHEN m.white_player_id = p.id THEN m.result
+                WHEN m.black_player_id = p.id THEN 1 - m.result
+                ELSE 0
+              END
+            ), 0)::float AS points
+          FROM tournament_players tp
+          JOIN players p ON p.id = tp.player_id
+          LEFT JOIN matches m ON m.tournament_id = tp.tournament_id AND (m.white_player_id = p.id OR m.black_player_id = p.id)
+          WHERE tp.tournament_id = $1
+          GROUP BY p.id
+          ORDER BY points DESC, wins DESC
+        `,
+        [request.params.id]
+      );
+
+      return {
+        tournament,
+        matches: matchesResult.rows,
+        standings: standingsResult.rows
+      };
     } finally {
       await pool.end();
     }
