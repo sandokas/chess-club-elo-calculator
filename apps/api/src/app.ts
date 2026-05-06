@@ -20,6 +20,10 @@ type TournamentParams = {
   id: string;
 };
 
+type PlayerParams = {
+  id: string;
+};
+
 export async function createApp(options: AppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: true
@@ -239,6 +243,89 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         tournament,
         matches: matchesResult.rows,
         standings: standingsResult.rows
+      };
+    } finally {
+      await pool.end();
+    }
+  });
+
+  app.get<{ Params: PlayerParams }>("/players/:id", async (request) => {
+    const pool = createPool();
+    try {
+      const playerResult = await pool.query(
+        `
+          SELECT
+            p.id,
+            p.display_name AS "displayName",
+            p.active,
+            p.legacy_id AS "legacyId",
+            p.created_at AS "createdAt",
+            p.club_id AS "clubId",
+            c.name AS "clubName",
+            pr.elo,
+            pr.glicko_rating AS "glickoRating",
+            pr.glicko_rd AS "glickoRd",
+            pr.glicko_vol AS "glickoVol",
+            pr.games_played AS "gamesPlayed",
+            pr.last_game_date AS "lastGameDate"
+          FROM players p
+          JOIN clubs c ON c.id = p.club_id
+          JOIN player_ratings pr ON pr.player_id = p.id
+          WHERE p.id = $1
+        `,
+        [request.params.id]
+      );
+
+      if (playerResult.rows.length === 0) {
+        return { error: "Player not found" };
+      }
+
+      const player = playerResult.rows[0];
+
+      const matchesResult = await pool.query(
+        `
+          SELECT
+            m.id,
+            m.white_player_id AS "whitePlayerId",
+            wp.display_name AS "whitePlayerName",
+            m.black_player_id AS "blackPlayerId",
+            bp.display_name AS "blackPlayerName",
+            m.result,
+            m.played_on AS "playedOn",
+            m.tournament_id AS "tournamentId",
+            t.name AS "tournamentName",
+            CASE
+              WHEN m.white_player_id = $1 THEN m.white_elo_before
+              ELSE m.black_elo_before
+            END AS "eloBefore",
+            CASE
+              WHEN m.white_player_id = $1 THEN m.white_elo_after
+              ELSE m.black_elo_after
+            END AS "eloAfter",
+            CASE
+              WHEN m.white_player_id = $1 THEN m.white_glicko_rating_before
+              ELSE m.black_glicko_rating_before
+            END AS "glickoRatingBefore",
+            CASE
+              WHEN m.white_player_id = $1 THEN m.white_glicko_rating_after
+              ELSE m.black_glicko_rating_after
+            END AS "glickoRatingAfter"
+          FROM matches m
+          JOIN players wp ON wp.id = m.white_player_id
+          JOIN players bp ON bp.id = m.black_player_id
+          JOIN tournaments t ON t.id = m.tournament_id
+          WHERE (m.white_player_id = $1 OR m.black_player_id = $1)
+            AND m.status = 'completed'
+            AND m.result IS NOT NULL
+          ORDER BY m.played_on DESC, m.id DESC
+          LIMIT 20
+        `,
+        [request.params.id]
+      );
+
+      return {
+        player,
+        matches: matchesResult.rows
       };
     } finally {
       await pool.end();

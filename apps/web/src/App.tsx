@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, Link, useParams, useNavigate } from "react-router-dom";
+import { Header } from "./components/layout/header.js";
+import { SkipLink } from "./components/ui/skip-link.js";
+import { StatusCard } from "./components/shared/status-card.js";
+import { StatCard } from "./components/shared/stat-card.js";
+import { BackButton } from "./components/shared/back-button.js";
+import { AdminOverviewSkeleton } from "./components/dashboard/admin-overview-skeleton.js";
+import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card.js";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table.js";
+import { Badge } from "./components/ui/badge.js";
 
 type LoadState =
   | { status: "loading" }
@@ -57,12 +66,17 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
 export function App() {
   return (
-    <main className="app-shell">
-      <Routes>
-        <Route path="/" element={<AdminOverviewPage />} />
-        <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
-      </Routes>
-    </main>
+    <div className="min-h-screen bg-background">
+      <SkipLink />
+      <Header />
+      <main id="main-content" className="container mx-auto p-4 sm:p-6" tabIndex={-1}>
+        <Routes>
+          <Route path="/" element={<AdminOverviewPage />} />
+          <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
+          <Route path="/players/:id" element={<PlayerDetailPage />} />
+        </Routes>
+      </main>
+    </div>
   );
 }
 
@@ -91,7 +105,7 @@ function AdminOverviewPage() {
 
   return (
     <>
-      {state.status === "loading" && <StatusCard title="Loading club data" message={`Fetching ${apiBaseUrl}`} tone="loading" />}
+      {state.status === "loading" && <AdminOverviewSkeleton />}
       {state.status === "error" && <StatusCard title="Unable to load club data" message={state.message} tone="error" />}
       {state.status === "ok" && <AdminOverview data={state.data} />}
     </>
@@ -132,100 +146,92 @@ function AdminOverview({ data }: { data: AdminData }) {
   const recentTournaments = data.tournaments.slice(0, 6);
 
   return (
-    <section className="dashboard" aria-labelledby="app-title">
-      <header className="hero">
-        <p className="eyebrow">Chess Club Manager</p>
-        <h1 id="app-title">{data.club.name}</h1>
-        <p className="lede">
+    <section className="space-y-6 sm:space-y-8" aria-labelledby="app-title">
+      <header>
+        <p className="text-xs sm:text-sm font-semibold text-primary mb-2 uppercase tracking-wider">Chess Club Manager</p>
+        <h1 id="app-title" className="text-2xl sm:text-3xl md:text-4xl font-bold">{data.club.name}</h1>
+        <p className="text-muted-foreground mt-2 max-w-2xl text-sm sm:text-base">
           Imported club data is now available through the Node API. This admin overview is the first step toward replacing the Python CLI workflows.
         </p>
       </header>
 
-      <section className="stats-grid" aria-label="Club summary">
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4" aria-label="Club summary">
         <StatCard label="Players" value={data.players.length} />
         <StatCard label="Tournaments" value={data.tournaments.length} />
         <StatCard label="Recorded matches" value={data.tournaments.reduce((total, tournament) => total + tournament.matchCount, 0)} />
       </section>
 
-      <div className="content-grid">
-        <section className="panel">
-          <div className="panel-heading">
-            <h2>Leaderboard</h2>
-            <span>Top {topPlayers.length}</span>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>Elo</th>
-                  <th>Glicko</th>
-                  <th>W/D/L</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topPlayers.map((player) => (
-                  <tr key={player.id}>
-                    <td>{player.displayName}</td>
-                    <td>{formatRating(player.elo)}</td>
-                    <td>{formatRating(player.glickoRating)}</td>
-                    <td>
-                      {player.wins}/{player.draws}/{player.losses}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <CardTitle className="text-lg sm:text-xl">Leaderboard</CardTitle>
+              <span className="text-xs sm:text-sm text-muted-foreground">Top {topPlayers.length}</span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Player</TableHead>
+                    <TableHead className="hidden sm:table-cell">Elo</TableHead>
+                    <TableHead>Glicko</TableHead>
+                    <TableHead className="hidden sm:table-cell">W/D/L</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {topPlayers.map((player) => (
+                    <TableRow key={player.id}>
+                      <TableCell><Link to={`/players/${player.id}`} className="font-medium hover:underline text-sm sm:text-base">{player.displayName}</Link></TableCell>
+                      <TableCell className="hidden sm:table-cell">{formatRating(player.elo)}</TableCell>
+                      <TableCell>{formatRating(player.glickoRating)}</TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        {player.wins}/{player.draws}/{player.losses}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
 
-        <section className="panel">
-          <div className="panel-heading">
-            <h2>Recent tournaments</h2>
-            <span>{data.tournaments.length} total</span>
-          </div>
-          <div className="tournament-list">
-            {recentTournaments.map((tournament) => (
-              <Link to={`/tournaments/${tournament.id}`} key={tournament.id} className="tournament-card">
-                <div>
-                  <h3>{tournament.name}</h3>
-                  <p>{formatDate(tournament.startsOn)}</p>
-                </div>
-                <div className="tournament-meta">
-                  <span>{tournament.status}</span>
-                  <span>{tournament.playerCount} players</span>
-                  <span>{tournament.matchCount} matches</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </section>
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <CardTitle className="text-lg sm:text-xl">Recent tournaments</CardTitle>
+              <span className="text-xs sm:text-sm text-muted-foreground">{data.tournaments.length} total</span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {recentTournaments.map((tournament) => (
+                <Link to={`/tournaments/${tournament.id}`} key={tournament.id} className="block">
+                  <Card className="hover:bg-accent transition-colors">
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-sm sm:text-base">{tournament.name}</h3>
+                          <p className="text-xs sm:text-sm text-muted-foreground">{formatDate(tournament.startsOn)}</p>
+                        </div>
+                        <div className="flex flex-row sm:flex-col items-end sm:items-end gap-2 sm:gap-1 text-xs sm:text-sm">
+                          <Badge variant="outline" className="text-xs">{tournament.status}</Badge>
+                          <span className="text-muted-foreground whitespace-nowrap">{tournament.playerCount} players</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </section>
   );
 }
 
-function StatusCard({ title, message, tone }: { title: string; message: string; tone: "loading" | "error" }) {
-  return (
-    <section className="status-panel" aria-labelledby="app-title">
-      <p className="eyebrow">Chess Club Manager</p>
-      <h1 id="app-title">{title}</h1>
-      <div className={`health-card health-card--${tone}`}>
-        <span className="health-dot" aria-hidden="true" />
-        <p>{message}</p>
-      </div>
-    </section>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <article className="stat-card">
-      <p>{label}</p>
-      <strong>{value}</strong>
-    </article>
-  );
-}
 
 function formatRating(value: number): string {
   return value.toFixed(1);
@@ -271,6 +277,41 @@ type Standing = {
   points: number;
 };
 
+type PlayerDetail = {
+  player: {
+    id: string;
+    displayName: string;
+    active: boolean;
+    legacyId: number | null;
+    createdAt: string;
+    clubId: string;
+    clubName: string;
+    elo: number;
+    glickoRating: number;
+    glickoRd: number;
+    glickoVol: number;
+    gamesPlayed: number;
+    lastGameDate: string | null;
+  };
+  matches: PlayerMatch[];
+};
+
+type PlayerMatch = {
+  id: string;
+  whitePlayerId: string;
+  whitePlayerName: string;
+  blackPlayerId: string;
+  blackPlayerName: string;
+  result: number;
+  playedOn: string;
+  tournamentId: string;
+  tournamentName: string;
+  eloBefore: number | null;
+  eloAfter: number | null;
+  glickoRatingBefore: number | null;
+  glickoRatingAfter: number | null;
+};
+
 function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -302,84 +343,90 @@ function TournamentDetailPage() {
   }, [id]);
 
   return (
-    <section className="dashboard" aria-labelledby="tournament-title">
-      <header className="hero">
-        <p className="eyebrow">Chess Club Manager</p>
-        <button onClick={() => navigate(-1)} className="back-button">← Back</button>
+    <section className="space-y-6 sm:space-y-8" aria-labelledby="tournament-title">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <p className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider">Chess Club Manager</p>
+          <BackButton />
+        </div>
         {state.status === "loading" && <h1 id="tournament-title">Loading tournament...</h1>}
         {state.status === "error" && <h1 id="tournament-title">Error: {state.message}</h1>}
-        {state.status === "ok" && <h1 id="tournament-title">{state.data.tournament.name}</h1>}
+        {state.status === "ok" && <h1 id="tournament-title" className="text-2xl sm:text-3xl font-bold">{state.data.tournament.name}</h1>}
       </header>
 
       {state.status === "ok" && (
         <>
-          <section className="stats-grid" aria-label="Tournament summary">
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Tournament summary">
             <StatCard label="Status" value={state.data.tournament.status} />
             <StatCard label="Players" value={state.data.tournament.playerCount} />
             <StatCard label="Matches" value={state.data.tournament.matchCount} />
             <StatCard label="Start date" value={formatDate(state.data.tournament.startsOn)} />
           </section>
 
-          <div className="content-grid">
-            <section className="panel">
-              <div className="panel-heading">
-                <h2>Standings</h2>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Player</th>
-                      <th>W</th>
-                      <th>D</th>
-                      <th>L</th>
-                      <th>Points</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.data.standings.map((standing) => (
-                      <tr key={standing.playerId}>
-                        <td>{standing.playerName}</td>
-                        <td>{standing.wins}</td>
-                        <td>{standing.draws}</td>
-                        <td>{standing.losses}</td>
-                        <td>{standing.points.toFixed(1)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg sm:text-xl">Standings</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Player</TableHead>
+                        <TableHead className="hidden sm:table-cell">W</TableHead>
+                        <TableHead className="hidden sm:table-cell">D</TableHead>
+                        <TableHead className="hidden sm:table-cell">L</TableHead>
+                        <TableHead>Points</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {state.data.standings.map((standing) => (
+                        <TableRow key={standing.playerId}>
+                          <TableCell><Link to={`/players/${standing.playerId}`} className="font-medium hover:underline text-sm sm:text-base">{standing.playerName}</Link></TableCell>
+                          <TableCell className="hidden sm:table-cell">{standing.wins}</TableCell>
+                          <TableCell className="hidden sm:table-cell">{standing.draws}</TableCell>
+                          <TableCell className="hidden sm:table-cell">{standing.losses}</TableCell>
+                          <TableCell>{standing.points.toFixed(1)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
 
-            <section className="panel">
-              <div className="panel-heading">
-                <h2>Matches</h2>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Board</th>
-                      <th>White</th>
-                      <th>Black</th>
-                      <th>Result</th>
-                      <th>Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.data.matches.map((match) => (
-                      <tr key={match.id}>
-                        <td>{match.boardNumber ?? "-"}</td>
-                        <td>{match.whitePlayerName}</td>
-                        <td>{match.blackPlayerName}</td>
-                        <td>{match.result}</td>
-                        <td>{formatDate(match.playedOn)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg sm:text-xl">Matches</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Board</TableHead>
+                        <TableHead className="hidden sm:table-cell">White</TableHead>
+                        <TableHead className="hidden sm:table-cell">Black</TableHead>
+                        <TableHead>Result</TableHead>
+                        <TableHead className="hidden sm:table-cell">Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {state.data.matches.map((match) => (
+                        <TableRow key={match.id}>
+                          <TableCell>{match.boardNumber ?? "-"}</TableCell>
+                          <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.whitePlayerId}`} className="font-medium hover:underline">{match.whitePlayerName}</Link></TableCell>
+                          <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.blackPlayerId}`} className="font-medium hover:underline">{match.blackPlayerName}</Link></TableCell>
+                          <TableCell>{match.result}</TableCell>
+                          <TableCell className="hidden sm:table-cell">{formatDate(match.playedOn)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </>
       )}
@@ -393,4 +440,132 @@ async function loadTournamentDetail(tournamentId: string, signal: AbortSignal): 
     throw new Error(`API responded with ${response.status} for tournament ${tournamentId}`);
   }
   return response.json() as Promise<TournamentDetail>;
+}
+
+type PlayerDetailState =
+  | { status: "loading" }
+  | { status: "ok"; data: PlayerDetail }
+  | { status: "error"; message: string };
+
+function PlayerDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [state, setState] = useState<PlayerDetailState>({ status: "loading" });
+
+  useEffect(() => {
+    if (!id) {
+      setState({ status: "error", message: "No player ID provided" });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    loadPlayerDetail(id, controller.signal)
+      .then((data) => {
+        setState({ status: "ok", data });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setState({
+          status: "error",
+          message: error instanceof Error ? error.message : "Unable to load player"
+        });
+      });
+
+    return () => controller.abort();
+  }, [id]);
+
+  return (
+    <section className="space-y-6 sm:space-y-8" aria-labelledby="player-title">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <p className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider">Chess Club Manager</p>
+          <BackButton />
+        </div>
+        {state.status === "loading" && <h1 id="player-title">Loading player...</h1>}
+        {state.status === "error" && <h1 id="player-title">Error: {state.message}</h1>}
+        {state.status === "ok" && <h1 id="player-title" className="text-2xl sm:text-3xl font-bold">{state.data.player.displayName}</h1>}
+      </header>
+
+      {state.status === "ok" && (
+        <>
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Player summary">
+            <StatCard label="Club" value={state.data.player.clubName} />
+            <StatCard label="Status" value={state.data.player.active ? "Active" : "Inactive"} />
+            <StatCard label="Games played" value={state.data.player.gamesPlayed} />
+            <StatCard label="Last game" value={formatDate(state.data.player.lastGameDate)} />
+          </section>
+
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Current ratings">
+            <StatCard label="Elo" value={formatRating(state.data.player.elo)} />
+            <StatCard label="Glicko Rating" value={formatRating(state.data.player.glickoRating)} />
+            <StatCard label="Glicko RD" value={formatRating(state.data.player.glickoRd)} />
+            <StatCard label="Glicko Vol" value={formatRating(state.data.player.glickoVol)} />
+          </section>
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <CardTitle className="text-lg sm:text-xl">Recent matches</CardTitle>
+                <span className="text-xs sm:text-sm text-muted-foreground">Last {state.data.matches.length}</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="hidden md:table-cell">Tournament</TableHead>
+                      <TableHead>Opponent</TableHead>
+                      <TableHead>Result</TableHead>
+                      <TableHead className="hidden sm:table-cell">Elo change</TableHead>
+                      <TableHead className="hidden sm:table-cell">Glicko change</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {state.data.matches.map((match) => {
+                      const isWhite = match.whitePlayerId === state.data.player.id;
+                      const opponentName = isWhite ? match.blackPlayerName : match.whitePlayerName;
+                      const result = isWhite ? match.result : 1 - match.result;
+                      const eloChange = match.eloBefore && match.eloAfter ? match.eloAfter - match.eloBefore : null;
+                      const glickoChange = match.glickoRatingBefore && match.glickoRatingAfter ? match.glickoRatingAfter - match.glickoRatingBefore : null;
+                      
+                      return (
+                        <TableRow key={match.id}>
+                          <TableCell className="text-xs sm:text-sm">{formatDate(match.playedOn)}</TableCell>
+                          <TableCell className="hidden md:table-cell text-xs sm:text-sm">{match.tournamentName}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">{opponentName}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">{formatResult(result, isWhite)}</TableCell>
+                          <TableCell className="hidden sm:table-cell text-xs sm:text-sm">{eloChange !== null ? (eloChange > 0 ? `+${eloChange.toFixed(1)}` : eloChange.toFixed(1)) : "N/A"}</TableCell>
+                          <TableCell className="hidden sm:table-cell text-xs sm:text-sm">{glickoChange !== null ? (glickoChange > 0 ? `+${glickoChange.toFixed(1)}` : glickoChange.toFixed(1)) : "N/A"}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </section>
+  );
+}
+
+function formatResult(result: number, isWhite: boolean): string {
+  if (result === 1) return "Win";
+  if (result === 0) return "Loss";
+  if (result === 0.5) return "Draw";
+  return "N/A";
+}
+
+async function loadPlayerDetail(playerId: string, signal: AbortSignal): Promise<PlayerDetail> {
+  const response = await fetch(`${apiBaseUrl}/players/${playerId}`, { signal });
+  if (!response.ok) {
+    throw new Error(`API responded with ${response.status} for player ${playerId}`);
+  }
+  return response.json() as Promise<PlayerDetail>;
 }
