@@ -27,7 +27,7 @@ type Player = {
 type Tournament = {
   id: string;
   name: string;
-  startsOn: string;
+  startsOn: string | null;
   status: string;
   playerCount: number;
   matchCount: number;
@@ -219,6 +219,11 @@ function formatRating(value: number): string {
   return value.toFixed(1);
 }
 
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(`${value}T00:00:00`));
+function formatDate(value: string | null): string {
+  if (!value) return "N/A";
+  const date = new Date(value);
+  if (isNaN(date.getTime())) {
+    return "N/A";
+  }
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
 }
