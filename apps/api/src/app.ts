@@ -332,12 +332,14 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
             bp.display_name AS "blackPlayerName",
             m.result,
             m.played_on AS "playedOn",
-            m.board_number AS "boardNumber"
+            m.board_number AS "boardNumber",
+            r.number AS "roundNumber"
           FROM matches m
           JOIN players wp ON wp.id = m.white_player_id
           JOIN players bp ON bp.id = m.black_player_id
+          LEFT JOIN rounds r ON r.id = m.round_id
           WHERE m.tournament_id = $1
-          ORDER BY m.board_number ASC NULLS LAST, m.played_on ASC, m.id ASC
+          ORDER BY r.number ASC NULLS LAST, m.board_number ASC NULLS LAST, m.played_on ASC, m.id ASC
         `,
         [request.params.id]
       );

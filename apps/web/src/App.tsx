@@ -631,9 +631,10 @@ type Match = {
   whitePlayerName: string;
   blackPlayerId: string;
   blackPlayerName: string;
-  result: string;
+  result: number | null;
   playedOn: string;
   boardNumber: number | null;
+  roundNumber: number | null;
 };
 
 type Standing = {
@@ -773,7 +774,8 @@ function TournamentDetailPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Board</TableHead>
+                        <TableHead>Round</TableHead>
+                        {state.data.tournament.status === "active" && <TableHead>Board</TableHead>}
                         <TableHead className="hidden sm:table-cell">White</TableHead>
                         <TableHead className="hidden sm:table-cell">Black</TableHead>
                         <TableHead>Result</TableHead>
@@ -783,10 +785,11 @@ function TournamentDetailPage() {
                     <TableBody>
                       {state.data.matches.map((match) => (
                         <TableRow key={match.id}>
-                          <TableCell>{match.boardNumber ?? "-"}</TableCell>
-                          <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.whitePlayerId}`} className="font-medium hover:underline">{match.whitePlayerName}</Link></TableCell>
-                          <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.blackPlayerId}`} className="font-medium hover:underline">{match.blackPlayerName}</Link></TableCell>
-                          <TableCell>{match.result}</TableCell>
+                          <TableCell>{match.roundNumber ?? "—"}</TableCell>
+                          {state.data.tournament.status === "active" && <TableCell>{match.boardNumber ?? "-"}</TableCell>}
+                          <TableCell className="hidden sm:table-cell">{renderPlayerOutcome("white", match.result, match.whitePlayerId, match.whitePlayerName)}</TableCell>
+                          <TableCell className="hidden sm:table-cell">{renderPlayerOutcome("black", match.result, match.blackPlayerId, match.blackPlayerName)}</TableCell>
+                          <TableCell>{formatCompactResult(match.result)}</TableCell>
                           <TableCell className="hidden sm:table-cell">{formatDate(match.playedOn)}</TableCell>
                         </TableRow>
                       ))}
@@ -906,7 +909,7 @@ function PlayerDetailPage() {
                           <TableCell className="text-xs sm:text-sm">{formatDate(match.playedOn)}</TableCell>
                           <TableCell className="hidden md:table-cell text-xs sm:text-sm">{match.tournamentName}</TableCell>
                           <TableCell className="text-xs sm:text-sm">{opponentName}</TableCell>
-                          <TableCell className="text-xs sm:text-sm">{formatResult(result, isWhite)}</TableCell>
+                          <TableCell className="text-xs sm:text-sm">{formatResultWithIcon(result, isWhite)}</TableCell>
                           <TableCell className="hidden sm:table-cell text-xs sm:text-sm">{eloChange !== null ? (eloChange > 0 ? `+${eloChange.toFixed(1)}` : eloChange.toFixed(1)) : "N/A"}</TableCell>
                           <TableCell className="hidden sm:table-cell text-xs sm:text-sm">{glickoChange !== null ? (glickoChange > 0 ? `+${glickoChange.toFixed(1)}` : glickoChange.toFixed(1)) : "N/A"}</TableCell>
                         </TableRow>
@@ -928,6 +931,24 @@ function formatResult(result: number, isWhite: boolean): string {
   if (result === 0) return "Loss";
   if (result === 0.5) return "Draw";
   return "N/A";
+}
+
+function formatResultWithIcon(result: number, isWhite: boolean) {
+  return formatResult(result, isWhite);
+}
+
+function renderPlayerOutcome(side: "white" | "black", result: number | null, playerId: string, playerName: string) {
+  return (
+    <Link to={`/players/${playerId}`} className="font-medium hover:underline">{playerName}</Link>
+  );
+}
+
+function formatCompactResult(result: number | null): string {
+  if (result === null) return "—";
+  if (result === 1) return "1–0";
+  if (result === 0) return "0–1";
+  if (result === 0.5) return "½–½";
+  return "—";
 }
 
 async function loadPlayerDetail(playerId: string, signal: AbortSignal): Promise<PlayerDetail> {
