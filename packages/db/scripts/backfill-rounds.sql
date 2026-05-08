@@ -14,7 +14,8 @@ DECLARE
     tournament_record RECORD;
     match_record RECORD;
     round_number INTEGER;
-    round_id UUID;
+    new_round_id UUID;
+    round_exists BOOLEAN;
     player_ids TEXT[];
 BEGIN
     -- For each tournament that has matches but no rounds
@@ -51,39 +52,40 @@ BEGIN
             round_number := 1;
             LOOP
                 -- Check if either player already has a match in this round
-                SELECT 1 INTO round_id
-                FROM matches m
-                INNER JOIN rounds r ON r.id = m.round_id
-                WHERE r.tournament_id = tournament_record.id
-                  AND r.number = round_number
-                  AND (m.white_player_id = match_record.white_player_id 
-                       OR m.white_player_id = match_record.black_player_id
-                       OR m.black_player_id = match_record.white_player_id 
-                       OR m.black_player_id = match_record.black_player_id)
-                LIMIT 1;
-                
-                EXIT WHEN round_id IS NULL; -- Found a round where neither player has played
-                
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM matches m
+                    INNER JOIN rounds r ON r.id = m.round_id
+                    WHERE r.tournament_id = tournament_record.id
+                      AND r.number = round_number
+                      AND (m.white_player_id = match_record.white_player_id
+                           OR m.white_player_id = match_record.black_player_id
+                           OR m.black_player_id = match_record.white_player_id
+                           OR m.black_player_id = match_record.black_player_id)
+                ) INTO round_exists;
+
+                EXIT WHEN NOT round_exists; -- Found a round where neither player has played
+
                 round_number := round_number + 1;
             END LOOP;
-            
+
             -- Check if this round already exists
-            SELECT id INTO round_id
+            SELECT id INTO new_round_id
             FROM rounds
             WHERE tournament_id = tournament_record.id AND number = round_number;
-            
+
             -- Create the round if it doesn't exist
-            IF round_id IS NULL THEN
+            IF new_round_id IS NULL THEN
                 INSERT INTO rounds (id, tournament_id, number, status, created_at, updated_at)
                 VALUES (gen_random_uuid(), tournament_record.id, round_number, 'completed', NOW(), NOW())
-                RETURNING id INTO round_id;
-                
+                RETURNING id INTO new_round_id;
+
                 RAISE NOTICE 'Created round % for tournament %', round_number, tournament_record.name;
             END IF;
-            
+
             -- Update the match to reference the round
             UPDATE matches
-            SET round_id = round_id, updated_at = NOW()
+            SET round_id = new_round_id, updated_at = NOW()
             WHERE id = match_record.match_id;
             
             RAISE NOTICE 'Assigned match % to round %', match_record.match_id, round_number;
