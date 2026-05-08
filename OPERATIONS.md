@@ -84,6 +84,20 @@ This document outlines operational rules and conventions for the Chess Club proj
 
 **Legacy Python**: See `docs/legacy-python/STYLEGUIDE.md` (reference only during migration)
 
+## Database Operations
+
+**Generate migrations** (after schema changes in `packages/db/src/schema.ts`):
+```bash
+pnpm db:generate
+```
+This creates a new SQL migration file with your schema changes.
+
+**Apply migrations** (auto-runs on docker compose up, or run manually):
+```bash
+pnpm db:migrate
+```
+This applies pending migrations to the database. Safe to run multiple times - skips already-applied migrations.
+
 ## Testing
 
 **TypeScript**: `pnpm test` (Vitest)

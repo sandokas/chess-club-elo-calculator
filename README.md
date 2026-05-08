@@ -66,6 +66,12 @@ pnpm typecheck
 
 # Run tests
 pnpm test
+
+# Generate database migrations (after schema changes)
+pnpm db:generate
+
+# Apply database migrations (auto-runs on docker compose up)
+pnpm db:migrate
 ```
 
 ## API Endpoints
