@@ -1,3 +1,9 @@
+# LEGACY DOCUMENTATION - Python CLI (being migrated to Node.js/TypeScript)
+
+**This document applies to the legacy Python CLI application in `src/chess_club/`. It is kept for reference during migration. For TypeScript testing, see the main project documentation.**
+
+---
+
 # Running Tests
 
 Quick steps to run the project's tests reliably (Linux / macOS):

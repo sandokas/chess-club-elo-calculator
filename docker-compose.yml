@@ -16,7 +16,7 @@ services:
       retries: 10
 
   api:
-    image: node:22-alpine
+    image: node:25-alpine
     user: "node"
     working_dir: /workspace
     command: sh -c "corepack pnpm --filter @chess-club/db db:migrate && corepack pnpm --filter @chess-club/api dev"
@@ -35,7 +35,7 @@ services:
         condition: service_healthy
 
   web:
-    image: node:22-alpine
+    image: node:25-alpine
     user: "node"
     working_dir: /workspace
     command: sh -c "corepack pnpm --filter @chess-club/web dev --host 0.0.0.0"

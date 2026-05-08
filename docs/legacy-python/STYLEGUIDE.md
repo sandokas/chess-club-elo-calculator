@@ -1,3 +1,9 @@
+# LEGACY DOCUMENTATION - Python CLI (being migrated to Node.js/TypeScript)
+
+**This document applies to the legacy Python CLI application in `src/chess_club/`. It is kept for reference during migration. Do not use these conventions for new TypeScript code.**
+
+---
+
 # Chess Club STYLEGUIDE
 
 Purpose

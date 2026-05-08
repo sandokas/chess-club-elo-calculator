@@ -1,6 +1,6 @@
 # Chess Club Web Architecture
 
-This repository is moving from a Python CLI application to a TypeScript web product. The Python package remains in place during the migration as the behavioral reference for ratings and import validation.
+This repository contains a TypeScript web application for chess club management. The application provides a REST API and React web interface for managing players, tournaments, and ratings (Elo and Glicko-2). A legacy Python CLI application remains in place during migration as a behavioral reference.
 
 ## Monorepo Layout
 
@@ -27,19 +27,21 @@ Players are separate from users. A player can exist without a login, and an admi
 
 Unauthenticated users can only see safe club metadata. Real names, rosters, tournaments, matches, and leaderboards require authenticated club membership. Mutations are reserved for owner, admin, and organizer roles.
 
-## Migration Strategy
+## Data Import
 
-`packages/db/scripts/import-sqlite.ts` imports the existing `chessclub.db` into PostgreSQL:
+`packages/db/scripts/import-sqlite.ts` imports existing SQLite databases into PostgreSQL:
 
-- creates one initial club from environment variables
-- creates one initial owner/admin user
-- imports players, tournaments, registrations, and matches
-- maps legacy `player1_id` to `white_player_id`
-- maps legacy `player2_id` to `black_player_id`
-- preserves legacy IDs for traceability
-- recomputes rating state using the TypeScript core package
+- Creates one initial club from environment variables
+- Creates one initial owner/admin user
+- Imports players, tournaments, registrations, and matches
+- Maps legacy `player1_id` to `white_player_id`
+- Maps legacy `player2_id` to `black_player_id`
+- Preserves legacy IDs for traceability
+- Recomputes rating state using the TypeScript core package
 
 Historical colors are inferred from the old player1/player2 columns because the CLI did not track real white/black colors.
+
+See `MIGRATION.md` for migration progress and remaining work.
 
 ## Runtime
 
