@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Routes, Route, Link, useParams, useNavigate } from "react-router-dom";
+import { Routes, Route, Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Header } from "./components/layout/header.js";
 import { SkipLink } from "./components/ui/skip-link.js";
 import { StatusCard } from "./components/shared/status-card.js";
@@ -9,11 +9,28 @@ import { AdminOverviewSkeleton } from "./components/dashboard/admin-overview-ske
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card.js";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table.js";
 import { Badge } from "./components/ui/badge.js";
+import { Switch } from "./components/ui/switch.js";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible.js";
 
 type LoadState =
   | { status: "loading" }
   | { status: "ok"; data: AdminData }
   | { status: "error"; message: string };
+
+type PlayersListState =
+  | { status: "loading" }
+  | { status: "ok"; data: PlayersListData }
+  | { status: "error"; message: string };
+
+type PlayersListData = {
+  players: Player[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
 
 type Club = {
   id: string;
@@ -46,6 +63,7 @@ type Tournament = {
 type LeaderboardEntry = {
   id: string;
   displayName: string;
+  active: boolean;
   elo: number;
   glickoRating: number;
   gamesPlayed: number;
@@ -72,6 +90,7 @@ export function App() {
       <main id="main-content" className="container mx-auto p-4 sm:p-6" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<AdminOverviewPage />} />
+          <Route path="/players" element={<PlayersListPage />} />
           <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
           <Route path="/players/:id" element={<PlayerDetailPage />} />
         </Routes>
@@ -82,11 +101,12 @@ export function App() {
 
 function AdminOverviewPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [activeOnly, setActiveOnly] = useState(true);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    loadAdminData(controller.signal)
+    loadAdminData(controller.signal, activeOnly)
       .then((data) => {
         setState({ status: "ok", data });
       })
@@ -101,18 +121,312 @@ function AdminOverviewPage() {
       });
 
     return () => controller.abort();
-  }, []);
+  }, [activeOnly]);
 
   return (
     <>
       {state.status === "loading" && <AdminOverviewSkeleton />}
       {state.status === "error" && <StatusCard title="Unable to load club data" message={state.message} tone="error" />}
-      {state.status === "ok" && <AdminOverview data={state.data} />}
+      {state.status === "ok" && <AdminOverview data={state.data} activeOnly={activeOnly} onActiveOnlyChange={setActiveOnly} />}
     </>
   );
 }
 
-async function loadAdminData(signal: AbortSignal): Promise<AdminData> {
+function PlayersListPage() {
+  const [state, setState] = useState<PlayersListState>({ status: "loading" });
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Get values from URL params or use defaults
+  const page = parseInt(searchParams.get("page") || "1", 10);
+  const limit = parseInt(searchParams.get("limit") || "20", 10);
+  const sortBy = searchParams.get("sortBy") || "elo";
+  const sortOrder = (searchParams.get("sortOrder") === "asc" || searchParams.get("sortOrder") === "desc") ? searchParams.get("sortOrder") as "asc" | "desc" : "desc";
+
+  // Filter params
+  const name = searchParams.get("name") || "";
+  const active = searchParams.get("active") || "";
+  const eloMin = searchParams.get("eloMin") || "";
+  const eloMax = searchParams.get("eloMax") || "";
+  const glickoMin = searchParams.get("glickoMin") || "";
+  const glickoMax = searchParams.get("glickoMax") || "";
+  const gamesPlayedMin = searchParams.get("gamesPlayedMin") || "";
+  const gamesPlayedMax = searchParams.get("gamesPlayedMax") || "";
+  const lastGameDateAfter = searchParams.get("lastGameDateAfter") || "";
+  const lastGameDateBefore = searchParams.get("lastGameDateBefore") || "";
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    loadPlayersList(controller.signal, page, limit, sortBy, sortOrder, name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore)
+      .then((data) => {
+        setState({ status: "ok", data });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setState({
+          status: "error",
+          message: error instanceof Error ? error.message : "Unable to load players"
+        });
+      });
+
+    return () => controller.abort();
+  }, [page, limit, sortBy, sortOrder, name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore]);
+
+  const handleSort = (column: string) => {
+    const newSortOrder = sortBy === column ? (sortOrder === "asc" ? "desc" : "asc") : "desc";
+    setSearchParams({ page: "1", sortBy: column, sortOrder: newSortOrder, limit: limit.toString(), name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setSearchParams({ page: newPage.toString(), sortBy, sortOrder, limit: limit.toString(), name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore });
+  };
+
+  const handleLimitChange = (newLimit: number) => {
+    setSearchParams({ page: "1", sortBy, sortOrder, limit: newLimit.toString(), name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore });
+  };
+
+  const handleFilterChange = (key: string, value: string) => {
+    setSearchParams({ page: "1", sortBy, sortOrder, limit: limit.toString(), name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore, [key]: value });
+  };
+
+  const clearFilters = () => {
+    setSearchParams({ page: "1", sortBy, sortOrder, limit: limit.toString() });
+  };
+
+  const hasFilters = name || active || eloMin || eloMax || glickoMin || glickoMax || gamesPlayedMin || gamesPlayedMax || lastGameDateAfter || lastGameDateBefore;
+
+  return (
+    <section className="space-y-6 sm:space-y-8" aria-labelledby="players-title">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <p className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider">Chess Club Manager</p>
+          <BackButton />
+        </div>
+        <h1 id="players-title" className="text-2xl sm:text-3xl font-bold">All Players</h1>
+      </header>
+
+      {state.status === "loading" && <AdminOverviewSkeleton />}
+      {state.status === "error" && <StatusCard title="Unable to load players" message={state.message} tone="error" />}
+      {state.status === "ok" && (
+        <>
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Players summary">
+            <StatCard label="Total players" value={state.data.pagination.total} />
+            <StatCard label="Current page" value={state.data.pagination.page} />
+            <StatCard label="Per page" value={state.data.pagination.limit} />
+            <StatCard label="Total pages" value={state.data.pagination.totalPages} />
+          </section>
+
+          <Card>
+            <Collapsible>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <CardTitle className="text-lg sm:text-xl">Players</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CollapsibleTrigger asChild>
+                      <button className="text-xs sm:text-sm text-primary hover:underline">
+                        Filters {hasFilters && "(active)"}
+                      </button>
+                    </CollapsibleTrigger>
+                    {hasFilters && (
+                      <button onClick={clearFilters} className="text-xs sm:text-sm text-muted-foreground hover:underline">
+                        Clear all
+                      </button>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs sm:text-sm text-muted-foreground">Show:</span>
+                      {[10, 20, 50].map((l) => (
+                        <button
+                          key={l}
+                          onClick={() => handleLimitChange(l)}
+                          className={`text-xs sm:text-sm px-2 py-1 rounded ${limit === l ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CollapsibleContent className="px-6 pb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-4 border-t">
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm font-medium">Name</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => handleFilterChange("name", e.target.value)}
+                      placeholder="Search by name..."
+                      className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm font-medium">Status</label>
+                    <select
+                      value={active}
+                      onChange={(e) => handleFilterChange("active", e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                    >
+                      <option value="">All</option>
+                      <option value="true">Active</option>
+                      <option value="false">Inactive</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm font-medium">Elo Range</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        value={eloMin}
+                        onChange={(e) => handleFilterChange("eloMin", e.target.value)}
+                        placeholder="Min"
+                        className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                      />
+                      <input
+                        type="number"
+                        value={eloMax}
+                        onChange={(e) => handleFilterChange("eloMax", e.target.value)}
+                        placeholder="Max"
+                        className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm font-medium">Glicko Range</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        value={glickoMin}
+                        onChange={(e) => handleFilterChange("glickoMin", e.target.value)}
+                        placeholder="Min"
+                        className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                      />
+                      <input
+                        type="number"
+                        value={glickoMax}
+                        onChange={(e) => handleFilterChange("glickoMax", e.target.value)}
+                        placeholder="Max"
+                        className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm font-medium">Games Played Range</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        value={gamesPlayedMin}
+                        onChange={(e) => handleFilterChange("gamesPlayedMin", e.target.value)}
+                        placeholder="Min"
+                        className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                      />
+                      <input
+                        type="number"
+                        value={gamesPlayedMax}
+                        onChange={(e) => handleFilterChange("gamesPlayedMax", e.target.value)}
+                        placeholder="Max"
+                        className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm font-medium">Last Game Date Range</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        value={lastGameDateAfter}
+                        onChange={(e) => handleFilterChange("lastGameDateAfter", e.target.value)}
+                        className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                      />
+                      <input
+                        type="date"
+                        value={lastGameDateBefore}
+                        onChange={(e) => handleFilterChange("lastGameDateBefore", e.target.value)}
+                        className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="cursor-pointer hover:bg-muted" onClick={() => handleSort("displayName")}>
+                        Name {sortBy === "displayName" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="hidden sm:table-cell cursor-pointer hover:bg-muted" onClick={() => handleSort("active")}>
+                        Status {sortBy === "active" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="hidden sm:table-cell cursor-pointer hover:bg-muted" onClick={() => handleSort("elo")}>
+                        Elo {sortBy === "elo" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="hidden sm:table-cell cursor-pointer hover:bg-muted" onClick={() => handleSort("glickoRating")}>
+                        Glicko {sortBy === "glickoRating" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-muted" onClick={() => handleSort("gamesPlayed")}>
+                        Games {sortBy === "gamesPlayed" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="hidden sm:table-cell cursor-pointer hover:bg-muted" onClick={() => handleSort("lastGameDate")}>
+                        Last Game {sortBy === "lastGameDate" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {state.data.players.map((player) => (
+                      <TableRow key={player.id}>
+                        <TableCell><Link to={`/players/${player.id}`} className="font-medium hover:underline text-sm sm:text-base">{player.displayName}</Link></TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <Badge variant={player.active ? "default" : "secondary"} className="text-xs">
+                            {player.active ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">{formatRating(player.elo)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{formatRating(player.glickoRating)}</TableCell>
+                        <TableCell>{player.gamesPlayed}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{formatDate(player.lastGameDate)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="flex items-center justify-between mt-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePageChange(page - 1)}
+                    disabled={page === 1}
+                    className="px-3 py-1 text-sm rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-muted-foreground">
+                    Page {page} of {state.data.pagination.totalPages}
+                  </span>
+                  <button
+                    onClick={() => handlePageChange(page + 1)}
+                    disabled={page === state.data.pagination.totalPages}
+                    className="px-3 py-1 text-sm rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+                <span className="text-xs sm:text-sm text-muted-foreground">
+                  Showing {((page - 1) * limit) + 1}-{Math.min(page * limit, state.data.pagination.total)} of {state.data.pagination.total}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </section>
+  );
+}
+
+async function loadAdminData(signal: AbortSignal, activeOnly: boolean = true): Promise<AdminData> {
   const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
   const club = clubsPayload.clubs[0];
   if (!club) {
@@ -122,7 +436,7 @@ async function loadAdminData(signal: AbortSignal): Promise<AdminData> {
   const [playersPayload, tournamentsPayload, leaderboardPayload] = await Promise.all([
     fetchJson<{ players: Player[] }>(`/clubs/${club.id}/players`, signal),
     fetchJson<{ tournaments: Tournament[] }>(`/clubs/${club.id}/tournaments`, signal),
-    fetchJson<{ leaderboard: LeaderboardEntry[] }>(`/clubs/${club.id}/leaderboard`, signal)
+    fetchJson<{ leaderboard: LeaderboardEntry[] }>(`/clubs/${club.id}/leaderboard?activeOnly=${activeOnly}`, signal)
   ]);
 
   return {
@@ -133,6 +447,39 @@ async function loadAdminData(signal: AbortSignal): Promise<AdminData> {
   };
 }
 
+async function loadPlayersList(signal: AbortSignal, page: number, limit: number, sortBy: string, sortOrder: string, name: string, active: string, eloMin: string, eloMax: string, glickoMin: string, glickoMax: string, gamesPlayedMin: string, gamesPlayedMax: string, lastGameDateAfter: string, lastGameDateBefore: string): Promise<PlayersListData> {
+  const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
+  const club = clubsPayload.clubs[0];
+  if (!club) {
+    throw new Error("No clubs found in the database.");
+  }
+
+  const params = new URLSearchParams({
+    page: page.toString(),
+    limit: limit.toString(),
+    sortBy,
+    sortOrder
+  });
+
+  if (name) params.append("name", name);
+  if (active) params.append("active", active);
+  if (eloMin) params.append("eloMin", eloMin);
+  if (eloMax) params.append("eloMax", eloMax);
+  if (glickoMin) params.append("glickoMin", glickoMin);
+  if (glickoMax) params.append("glickoMax", glickoMax);
+  if (gamesPlayedMin) params.append("gamesPlayedMin", gamesPlayedMin);
+  if (gamesPlayedMax) params.append("gamesPlayedMax", gamesPlayedMax);
+  if (lastGameDateAfter) params.append("lastGameDateAfter", lastGameDateAfter);
+  if (lastGameDateBefore) params.append("lastGameDateBefore", lastGameDateBefore);
+
+  const result = await fetchJson<PlayersListData>(
+    `/clubs/${club.id}/players?${params.toString()}`,
+    signal
+  );
+
+  return result;
+}
+
 async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, { signal });
   if (!response.ok) {
@@ -141,8 +488,8 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function AdminOverview({ data }: { data: AdminData }) {
-  const topPlayers = data.leaderboard.slice(0, 8);
+function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminData; activeOnly: boolean; onActiveOnlyChange: (value: boolean) => void }) {
+  const topPlayers = data.leaderboard.slice(0, 10);
   const recentTournaments = data.tournaments.slice(0, 6);
 
   return (
@@ -166,7 +513,22 @@ function AdminOverview({ data }: { data: AdminData }) {
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <CardTitle className="text-lg sm:text-xl">Leaderboard</CardTitle>
-              <span className="text-xs sm:text-sm text-muted-foreground">Top {topPlayers.length}</span>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="active-only-toggle"
+                    checked={activeOnly}
+                    onCheckedChange={onActiveOnlyChange}
+                  />
+                  <label htmlFor="active-only-toggle" className="text-xs sm:text-sm text-muted-foreground cursor-pointer">
+                    Active only
+                  </label>
+                </div>
+                <span className="text-xs sm:text-sm text-muted-foreground">Top {topPlayers.length}</span>
+                <Link to="/players" className="text-xs sm:text-sm text-primary hover:underline">
+                  View all
+                </Link>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -175,6 +537,7 @@ function AdminOverview({ data }: { data: AdminData }) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Player</TableHead>
+                    <TableHead className="hidden sm:table-cell">Status</TableHead>
                     <TableHead className="hidden sm:table-cell">Elo</TableHead>
                     <TableHead>Glicko</TableHead>
                     <TableHead className="hidden sm:table-cell">W/D/L</TableHead>
@@ -184,6 +547,11 @@ function AdminOverview({ data }: { data: AdminData }) {
                   {topPlayers.map((player) => (
                     <TableRow key={player.id}>
                       <TableCell><Link to={`/players/${player.id}`} className="font-medium hover:underline text-sm sm:text-base">{player.displayName}</Link></TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <Badge variant={player.active ? "default" : "secondary"} className="text-xs">
+                          {player.active ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="hidden sm:table-cell">{formatRating(player.elo)}</TableCell>
                       <TableCell>{formatRating(player.glickoRating)}</TableCell>
                       <TableCell className="hidden sm:table-cell">

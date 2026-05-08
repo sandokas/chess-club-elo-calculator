@@ -24,6 +24,7 @@ dist/
 coverage/
 .vite/
 *.tsbuildinfo
+.pnpm-store/
 
 .env.local
 .env.development.local
@@ -31,3 +32,8 @@ coverage/
 .env.production.local
 .env
 .env.import
+
+# IDE / Agent caches
+.agents/
+.codex/
+.pytest_cache/

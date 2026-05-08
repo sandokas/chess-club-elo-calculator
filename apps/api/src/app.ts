@@ -72,9 +72,125 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     }
   });
 
-  app.get<{ Params: ClubParams }>("/clubs/:clubId/players", async (request) => {
+  app.get<{ Params: ClubParams; Querystring: { page?: string; limit?: string; sortBy?: string; sortOrder?: string; name?: string; active?: string; eloMin?: string; eloMax?: string; glickoMin?: string; glickoMax?: string; gamesPlayedMin?: string; gamesPlayedMax?: string; lastGameDateAfter?: string; lastGameDateBefore?: string } }>("/clubs/:clubId/players", async (request) => {
     const pool = createPool();
     try {
+      // Parse and validate pagination and sorting parameters
+      const page = Math.max(1, parseInt(request.query.page || '1', 10));
+      const limit = [10, 20, 50].includes(parseInt(request.query.limit || '20', 10)) ? parseInt(request.query.limit || '20', 10) : 20;
+      const allowedSortColumns = ['displayName', 'elo', 'glickoRating', 'gamesPlayed', 'lastGameDate', 'active'];
+      const sortBy = allowedSortColumns.includes(request.query.sortBy || 'elo') ? request.query.sortBy || 'elo' : 'elo';
+      const sortOrder = (request.query.sortOrder === 'asc' || request.query.sortOrder === 'desc') ? request.query.sortOrder : 'desc';
+
+      // Parse and validate filter parameters
+      const filters: string[] = [];
+      const params: any[] = [request.params.clubId];
+      let paramIndex = 2;
+
+      if (request.query.name) {
+        filters.push(`p.display_name ILIKE $${paramIndex}`);
+        params.push(`%${request.query.name}%`);
+        paramIndex++;
+      }
+
+      if (request.query.active !== undefined) {
+        filters.push(`p.active = $${paramIndex}`);
+        params.push(request.query.active === 'true');
+        paramIndex++;
+      }
+
+      if (request.query.eloMin) {
+        const eloMin = parseFloat(request.query.eloMin);
+        if (!isNaN(eloMin)) {
+          filters.push(`pr.elo >= $${paramIndex}`);
+          params.push(eloMin);
+          paramIndex++;
+        }
+      }
+
+      if (request.query.eloMax) {
+        const eloMax = parseFloat(request.query.eloMax);
+        if (!isNaN(eloMax)) {
+          filters.push(`pr.elo <= $${paramIndex}`);
+          params.push(eloMax);
+          paramIndex++;
+        }
+      }
+
+      if (request.query.glickoMin) {
+        const glickoMin = parseFloat(request.query.glickoMin);
+        if (!isNaN(glickoMin)) {
+          filters.push(`pr.glicko_rating >= $${paramIndex}`);
+          params.push(glickoMin);
+          paramIndex++;
+        }
+      }
+
+      if (request.query.glickoMax) {
+        const glickoMax = parseFloat(request.query.glickoMax);
+        if (!isNaN(glickoMax)) {
+          filters.push(`pr.glicko_rating <= $${paramIndex}`);
+          params.push(glickoMax);
+          paramIndex++;
+        }
+      }
+
+      if (request.query.gamesPlayedMin) {
+        const gamesPlayedMin = parseInt(request.query.gamesPlayedMin, 10);
+        if (!isNaN(gamesPlayedMin)) {
+          filters.push(`pr.games_played >= $${paramIndex}`);
+          params.push(gamesPlayedMin);
+          paramIndex++;
+        }
+      }
+
+      if (request.query.gamesPlayedMax) {
+        const gamesPlayedMax = parseInt(request.query.gamesPlayedMax, 10);
+        if (!isNaN(gamesPlayedMax)) {
+          filters.push(`pr.games_played <= $${paramIndex}`);
+          params.push(gamesPlayedMax);
+          paramIndex++;
+        }
+      }
+
+      if (request.query.lastGameDateAfter) {
+        filters.push(`pr.last_game_date >= $${paramIndex}`);
+        params.push(request.query.lastGameDateAfter);
+        paramIndex++;
+      }
+
+      if (request.query.lastGameDateBefore) {
+        filters.push(`pr.last_game_date <= $${paramIndex}`);
+        params.push(request.query.lastGameDateBefore);
+        paramIndex++;
+      }
+
+      const whereClause = filters.length > 0 ? `AND ${filters.join(' AND ')}` : '';
+
+      // Map sortBy to database column names
+      const sortColumnMap: Record<string, string> = {
+        displayName: 'p.display_name',
+        elo: 'pr.elo',
+        glickoRating: 'pr.glicko_rating',
+        gamesPlayed: 'pr.games_played',
+        lastGameDate: 'pr.last_game_date',
+        active: 'p.active'
+      };
+      const dbSortColumn = sortColumnMap[sortBy];
+
+      // Get total count with filters
+      const countResult = await pool.query(
+        `SELECT COUNT(*) AS total FROM players p JOIN player_ratings pr ON pr.player_id = p.id WHERE p.club_id = $1 ${whereClause}`,
+        params
+      );
+      const total = parseInt(countResult.rows[0].total, 10);
+      const totalPages = Math.ceil(total / limit);
+      const offset = (page - 1) * limit;
+
+      // Add pagination parameters
+      params.push(limit, offset);
+
+      // Get paginated and sorted results with filters
       const result = await pool.query(
         `
           SELECT
@@ -90,12 +206,22 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
             pr.last_game_date AS "lastGameDate"
           FROM players p
           JOIN player_ratings pr ON pr.player_id = p.id
-          WHERE p.club_id = $1
-          ORDER BY pr.elo DESC, p.display_name ASC
+          WHERE p.club_id = $1 ${whereClause}
+          ORDER BY ${dbSortColumn} ${sortOrder.toUpperCase()}, p.display_name ASC
+          LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `,
-        [request.params.clubId]
+        params
       );
-      return { players: result.rows };
+
+      return {
+        players: result.rows,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages
+        }
+      };
     } finally {
       await pool.end();
     }
@@ -130,14 +256,16 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     }
   });
 
-  app.get<{ Params: ClubParams }>("/clubs/:clubId/leaderboard", async (request) => {
+  app.get<{ Params: ClubParams; Querystring: { activeOnly?: string } }>("/clubs/:clubId/leaderboard", async (request) => {
     const pool = createPool();
     try {
+      const activeOnly = request.query.activeOnly !== 'false';
       const result = await pool.query(
         `
           SELECT
             p.id,
             p.display_name AS "displayName",
+            p.active,
             pr.elo,
             pr.glicko_rating AS "glickoRating",
             pr.games_played AS "gamesPlayed",
@@ -153,7 +281,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
            AND m.status = 'completed'
            AND m.result IS NOT NULL
            AND (m.white_player_id = p.id OR m.black_player_id = p.id)
-          WHERE p.club_id = $1 AND p.active = true
+          WHERE p.club_id = $1 ${activeOnly ? 'AND p.active = true' : ''}
           GROUP BY p.id, pr.player_id
           ORDER BY pr.elo DESC, p.display_name ASC
         `,
