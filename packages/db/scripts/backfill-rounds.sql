@@ -77,7 +77,7 @@ BEGIN
             -- Create the round if it doesn't exist
             IF new_round_id IS NULL THEN
                 INSERT INTO rounds (id, tournament_id, number, status, created_at, updated_at)
-                VALUES (gen_random_uuid(), tournament_record.id, round_number, 'completed', NOW(), NOW())
+                VALUES (uuidv7(), tournament_record.id, round_number, 'completed', NOW(), NOW())
                 RETURNING id INTO new_round_id;
 
                 RAISE NOTICE 'Created round % for tournament %', round_number, tournament_record.name;

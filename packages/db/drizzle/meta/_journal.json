@@ -8,6 +8,13 @@
       "when": 1735689600000,
       "tag": "0000_initial_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1762704000000,
+      "tag": "0001_collation_und_ai_ci",
+      "breakpoints": true
     }
   ]
 }

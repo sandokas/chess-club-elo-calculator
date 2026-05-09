@@ -98,6 +98,20 @@ pnpm db:migrate
 ```
 This applies pending migrations to the database. Safe to run multiple times - skips already-applied migrations.
 
+**Backups**: Store all database dumps in the gitignored `backups/` folder at the repo root. Use a descriptive filename including a timestamp, e.g. `backups/uuidv7_recovery_YYYYMMDD_HHMMSS.sql`.
+
+Dump (data only, excluding drizzle's bookkeeping schema):
+```bash
+docker compose exec -T postgres pg_dump -U chess_club --data-only --disable-triggers --exclude-schema=drizzle chess_club > backups/<name>_$(date +%Y%m%d_%H%M%S).sql
+```
+
+Restore into a freshly-migrated empty DB:
+```bash
+docker compose exec -T postgres psql -U chess_club -d chess_club -v ON_ERROR_STOP=1 < backups/<file>.sql
+```
+
+Do not create alternate dump folders (`.dumps/`, `tmp/`, etc.) — keep all dumps in `backups/`.
+
 ## Testing
 
 **TypeScript**: `pnpm test` (Vitest)

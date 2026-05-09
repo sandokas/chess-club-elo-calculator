@@ -14,6 +14,7 @@ import {
   uuid,
   varchar
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const authProviderEnum = pgEnum("auth_provider", ["password", "google"]);
 export const clubRoleEnum = pgEnum("club_role", ["owner", "admin", "organizer", "member"]);
@@ -26,7 +27,7 @@ export const matchStatusEnum = pgEnum("match_status", ["scheduled", "completed",
 export const users = pgTable(
   "users",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
     email: varchar("email", { length: 320 }).notNull(),
     name: text("name").notNull(),
     avatarUrl: text("avatar_url"),
@@ -43,7 +44,7 @@ export const users = pgTable(
 export const authIdentities = pgTable(
   "auth_identities",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -61,7 +62,7 @@ export const authIdentities = pgTable(
 export const sessions = pgTable(
   "sessions",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -78,7 +79,8 @@ export const sessions = pgTable(
 export const clubs = pgTable(
   "clubs",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
+    // DB-level: COLLATE public.und_ai_ci (nondeterministic, case- + accent-insensitive). See 0001_collation_und_ai_ci.sql.
     name: text("name").notNull(),
     slug: varchar("slug", { length: 120 }).notNull(),
     description: text("description"),
@@ -114,7 +116,7 @@ export const clubMemberships = pgTable(
 export const clubInvites = pgTable(
   "club_invites",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
     clubId: uuid("club_id")
       .notNull()
       .references(() => clubs.id, { onDelete: "cascade" }),
@@ -136,11 +138,12 @@ export const clubInvites = pgTable(
 export const players = pgTable(
   "players",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
     clubId: uuid("club_id")
       .notNull()
       .references(() => clubs.id, { onDelete: "cascade" }),
     linkedUserId: uuid("linked_user_id").references(() => users.id, { onDelete: "set null" }),
+    // DB-level: COLLATE public.und_ai_ci (nondeterministic, case- + accent-insensitive). See 0001_collation_und_ai_ci.sql.
     displayName: text("display_name").notNull(),
     active: boolean("active").notNull().default(true),
     legacyId: integer("legacy_id"),
@@ -180,10 +183,11 @@ export const playerRatings = pgTable(
 export const tournaments = pgTable(
   "tournaments",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
     clubId: uuid("club_id")
       .notNull()
       .references(() => clubs.id, { onDelete: "cascade" }),
+    // DB-level: COLLATE public.und_ai_ci (nondeterministic, case- + accent-insensitive). See 0001_collation_und_ai_ci.sql.
     name: text("name").notNull(),
     startsOn: date("starts_on").notNull(),
     format: tournamentFormatEnum("format").notNull().default("manual"),
@@ -219,7 +223,7 @@ export const tournamentPlayers = pgTable(
 export const rounds = pgTable(
   "rounds",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
     tournamentId: uuid("tournament_id")
       .notNull()
       .references(() => tournaments.id, { onDelete: "cascade" }),
@@ -236,7 +240,7 @@ export const rounds = pgTable(
 export const matches = pgTable(
   "matches",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
     clubId: uuid("club_id")
       .notNull()
       .references(() => clubs.id, { onDelete: "cascade" }),

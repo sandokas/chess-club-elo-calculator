@@ -9,7 +9,7 @@ CREATE TYPE "round_status" AS ENUM ('scheduled', 'active', 'completed');
 CREATE TYPE "match_status" AS ENUM ('scheduled', 'completed', 'void');
 
 CREATE TABLE "users" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "email" varchar(320) NOT NULL,
   "name" text NOT NULL,
   "avatar_url" text,
@@ -20,7 +20,7 @@ CREATE TABLE "users" (
 );
 
 CREATE TABLE "auth_identities" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "user_id" uuid NOT NULL,
   "provider" "auth_provider" NOT NULL,
   "provider_subject" text NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE "auth_identities" (
 );
 
 CREATE TABLE "sessions" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "user_id" uuid NOT NULL,
   "token_hash" text NOT NULL,
   "expires_at" timestamp with time zone NOT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE "sessions" (
 );
 
 CREATE TABLE "clubs" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "name" text NOT NULL,
   "slug" varchar(120) NOT NULL,
   "description" text,
@@ -56,7 +56,7 @@ CREATE TABLE "club_memberships" (
 );
 
 CREATE TABLE "club_invites" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "club_id" uuid NOT NULL,
   "email" varchar(320) NOT NULL,
   "role" "club_role" NOT NULL,
@@ -69,7 +69,7 @@ CREATE TABLE "club_invites" (
 );
 
 CREATE TABLE "players" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "club_id" uuid NOT NULL,
   "linked_user_id" uuid,
   "display_name" text NOT NULL,
@@ -93,7 +93,7 @@ CREATE TABLE "player_ratings" (
 );
 
 CREATE TABLE "tournaments" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "club_id" uuid NOT NULL,
   "name" text NOT NULL,
   "starts_on" date NOT NULL,
@@ -113,7 +113,7 @@ CREATE TABLE "tournament_players" (
 );
 
 CREATE TABLE "rounds" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "tournament_id" uuid NOT NULL,
   "number" integer NOT NULL,
   "status" "round_status" DEFAULT 'scheduled' NOT NULL,
@@ -122,7 +122,7 @@ CREATE TABLE "rounds" (
 );
 
 CREATE TABLE "matches" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
   "club_id" uuid NOT NULL,
   "tournament_id" uuid NOT NULL,
   "round_id" uuid,

@@ -17,6 +17,7 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
     "import:sqlite": "tsx scripts/import-sqlite.ts"
   },
   "dependencies": {

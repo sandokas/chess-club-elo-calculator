@@ -88,7 +88,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
       let paramIndex = 2;
 
       if (request.query.name) {
-        filters.push(`p.display_name ILIKE $${paramIndex}`);
+        filters.push(`p.display_name LIKE $${paramIndex}`);
         params.push(`%${request.query.name}%`);
         paramIndex++;
       }
