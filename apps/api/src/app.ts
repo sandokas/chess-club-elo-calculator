@@ -1,12 +1,9 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createPool } from "@chess-club/db";
-
-type HttpError = Error & { statusCode?: number };
-
-function asHttpError(error: unknown): HttpError {
-  return error instanceof Error ? error : new Error("Unknown server error");
-}
+import { registerHealthRoutes, type HealthOptions } from "./routes/health.js";
+import { registerPlayerRoutes } from "./routes/players.js";
+import { asHttpError, createErrorResponse } from "./lib/errors.js";
 
 export type AppOptions = {
   databasePing?: () => Promise<void>;
@@ -17,10 +14,6 @@ type ClubParams = {
 };
 
 type TournamentParams = {
-  id: string;
-};
-
-type PlayerParams = {
   id: string;
 };
 
@@ -35,28 +28,16 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
   });
 
   app.setErrorHandler((error, _request, reply) => {
-    const httpError = asHttpError(error);
-    app.log.error(httpError);
-    const statusCode = httpError.statusCode && httpError.statusCode >= 400 ? httpError.statusCode : 500;
-    return reply.status(statusCode).send({
-      error: statusCode === 500 ? "Internal Server Error" : httpError.name,
-      message: statusCode === 500 ? "Unexpected server error." : httpError.message
-    });
+    const { statusCode, body } = createErrorResponse(error);
+    app.log.error(error);
+    return reply.status(statusCode).send(body);
   });
 
-  app.get("/health", async () => ({
-    status: "ok",
-    service: "chess-club-api"
-  }));
-
-  app.get("/health/db", async (_request, reply) => {
-    const ping = options.databasePing ?? defaultDatabasePing;
-    await ping();
-    return reply.send({
-      status: "ok",
-      database: "reachable"
-    });
+  await registerHealthRoutes(app, {
+    databasePing: options.databasePing
   });
+
+  await registerPlayerRoutes(app);
 
   app.get("/clubs", async () => {
     const pool = createPool();
@@ -67,161 +48,6 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         ORDER BY name
       `);
       return { clubs: result.rows };
-    } finally {
-      await pool.end();
-    }
-  });
-
-  app.get<{ Params: ClubParams; Querystring: { page?: string; limit?: string; sortBy?: string; sortOrder?: string; name?: string; active?: string; eloMin?: string; eloMax?: string; glickoMin?: string; glickoMax?: string; gamesPlayedMin?: string; gamesPlayedMax?: string; lastGameDateAfter?: string; lastGameDateBefore?: string } }>("/clubs/:clubId/players", async (request) => {
-    const pool = createPool();
-    try {
-      // Parse and validate pagination and sorting parameters
-      const page = Math.max(1, parseInt(request.query.page || '1', 10));
-      const limit = [10, 20, 50].includes(parseInt(request.query.limit || '20', 10)) ? parseInt(request.query.limit || '20', 10) : 20;
-      const allowedSortColumns = ['displayName', 'elo', 'glickoRating', 'gamesPlayed', 'lastGameDate', 'active'];
-      const sortBy = allowedSortColumns.includes(request.query.sortBy || 'elo') ? request.query.sortBy || 'elo' : 'elo';
-      const sortOrder = (request.query.sortOrder === 'asc' || request.query.sortOrder === 'desc') ? request.query.sortOrder : 'desc';
-
-      // Parse and validate filter parameters
-      const filters: string[] = [];
-      const params: any[] = [request.params.clubId];
-      let paramIndex = 2;
-
-      if (request.query.name) {
-        filters.push(`p.display_name LIKE $${paramIndex}`);
-        params.push(`%${request.query.name}%`);
-        paramIndex++;
-      }
-
-      if (request.query.active !== undefined) {
-        filters.push(`p.active = $${paramIndex}`);
-        params.push(request.query.active === 'true');
-        paramIndex++;
-      }
-
-      if (request.query.eloMin) {
-        const eloMin = parseFloat(request.query.eloMin);
-        if (!isNaN(eloMin)) {
-          filters.push(`pr.elo >= $${paramIndex}`);
-          params.push(eloMin);
-          paramIndex++;
-        }
-      }
-
-      if (request.query.eloMax) {
-        const eloMax = parseFloat(request.query.eloMax);
-        if (!isNaN(eloMax)) {
-          filters.push(`pr.elo <= $${paramIndex}`);
-          params.push(eloMax);
-          paramIndex++;
-        }
-      }
-
-      if (request.query.glickoMin) {
-        const glickoMin = parseFloat(request.query.glickoMin);
-        if (!isNaN(glickoMin)) {
-          filters.push(`pr.glicko_rating >= $${paramIndex}`);
-          params.push(glickoMin);
-          paramIndex++;
-        }
-      }
-
-      if (request.query.glickoMax) {
-        const glickoMax = parseFloat(request.query.glickoMax);
-        if (!isNaN(glickoMax)) {
-          filters.push(`pr.glicko_rating <= $${paramIndex}`);
-          params.push(glickoMax);
-          paramIndex++;
-        }
-      }
-
-      if (request.query.gamesPlayedMin) {
-        const gamesPlayedMin = parseInt(request.query.gamesPlayedMin, 10);
-        if (!isNaN(gamesPlayedMin)) {
-          filters.push(`pr.games_played >= $${paramIndex}`);
-          params.push(gamesPlayedMin);
-          paramIndex++;
-        }
-      }
-
-      if (request.query.gamesPlayedMax) {
-        const gamesPlayedMax = parseInt(request.query.gamesPlayedMax, 10);
-        if (!isNaN(gamesPlayedMax)) {
-          filters.push(`pr.games_played <= $${paramIndex}`);
-          params.push(gamesPlayedMax);
-          paramIndex++;
-        }
-      }
-
-      if (request.query.lastGameDateAfter) {
-        filters.push(`pr.last_game_date >= $${paramIndex}`);
-        params.push(request.query.lastGameDateAfter);
-        paramIndex++;
-      }
-
-      if (request.query.lastGameDateBefore) {
-        filters.push(`pr.last_game_date <= $${paramIndex}`);
-        params.push(request.query.lastGameDateBefore);
-        paramIndex++;
-      }
-
-      const whereClause = filters.length > 0 ? `AND ${filters.join(' AND ')}` : '';
-
-      // Map sortBy to database column names
-      const sortColumnMap: Record<string, string> = {
-        displayName: 'p.display_name',
-        elo: 'pr.elo',
-        glickoRating: 'pr.glicko_rating',
-        gamesPlayed: 'pr.games_played',
-        lastGameDate: 'pr.last_game_date',
-        active: 'p.active'
-      };
-      const dbSortColumn = sortColumnMap[sortBy];
-
-      // Get total count with filters
-      const countResult = await pool.query(
-        `SELECT COUNT(*) AS total FROM players p JOIN player_ratings pr ON pr.player_id = p.id WHERE p.club_id = $1 ${whereClause}`,
-        params
-      );
-      const total = parseInt(countResult.rows[0].total, 10);
-      const totalPages = Math.ceil(total / limit);
-      const offset = (page - 1) * limit;
-
-      // Add pagination parameters
-      params.push(limit, offset);
-
-      // Get paginated and sorted results with filters
-      const result = await pool.query(
-        `
-          SELECT
-            p.id,
-            p.display_name AS "displayName",
-            p.active,
-            p.legacy_id AS "legacyId",
-            pr.elo,
-            pr.glicko_rating AS "glickoRating",
-            pr.glicko_rd AS "glickoRd",
-            pr.glicko_vol AS "glickoVol",
-            pr.games_played AS "gamesPlayed",
-            pr.last_game_date AS "lastGameDate"
-          FROM players p
-          JOIN player_ratings pr ON pr.player_id = p.id
-          WHERE p.club_id = $1 ${whereClause}
-          ORDER BY ${dbSortColumn} ${sortOrder.toUpperCase()}, p.display_name ASC
-          LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-        `,
-        params
-      );
-
-      return {
-        players: result.rows,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages
-        }
-      };
     } finally {
       await pool.end();
     }
@@ -437,156 +263,6 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     }
   });
 
-  app.get<{ Params: PlayerParams }>("/players/:id", async (request) => {
-    const pool = createPool();
-    try {
-      const playerResult = await pool.query(
-        `
-          SELECT
-            p.id,
-            p.display_name AS "displayName",
-            p.active,
-            p.legacy_id AS "legacyId",
-            p.created_at AS "createdAt",
-            p.club_id AS "clubId",
-            c.name AS "clubName",
-            pr.elo,
-            pr.glicko_rating AS "glickoRating",
-            pr.glicko_rd AS "glickoRd",
-            pr.glicko_vol AS "glickoVol",
-            pr.games_played AS "gamesPlayed",
-            pr.last_game_date AS "lastGameDate"
-          FROM players p
-          JOIN clubs c ON c.id = p.club_id
-          JOIN player_ratings pr ON pr.player_id = p.id
-          WHERE p.id = $1
-        `,
-        [request.params.id]
-      );
-
-      if (playerResult.rows.length === 0) {
-        return { error: "Player not found" };
-      }
-
-      const player = playerResult.rows[0];
-
-      const matchesResult = await pool.query(
-        `
-          SELECT
-            m.id,
-            m.white_player_id AS "whitePlayerId",
-            wp.display_name AS "whitePlayerName",
-            m.black_player_id AS "blackPlayerId",
-            bp.display_name AS "blackPlayerName",
-            m.result,
-            m.played_on AS "playedOn",
-            m.tournament_id AS "tournamentId",
-            t.name AS "tournamentName",
-            CASE
-              WHEN m.white_player_id = $1 THEN m.white_elo_before
-              ELSE m.black_elo_before
-            END AS "eloBefore",
-            CASE
-              WHEN m.white_player_id = $1 THEN m.white_elo_after
-              ELSE m.black_elo_after
-            END AS "eloAfter",
-            CASE
-              WHEN m.white_player_id = $1 THEN m.white_glicko_rating_before
-              ELSE m.black_glicko_rating_before
-            END AS "glickoRatingBefore",
-            CASE
-              WHEN m.white_player_id = $1 THEN m.white_glicko_rating_after
-              ELSE m.black_glicko_rating_after
-            END AS "glickoRatingAfter"
-          FROM matches m
-          JOIN players wp ON wp.id = m.white_player_id
-          JOIN players bp ON bp.id = m.black_player_id
-          JOIN tournaments t ON t.id = m.tournament_id
-          WHERE (m.white_player_id = $1 OR m.black_player_id = $1)
-            AND m.status = 'completed'
-            AND m.result IS NOT NULL
-          ORDER BY m.played_on DESC, m.id DESC
-          LIMIT 20
-        `,
-        [request.params.id]
-      );
-
-      return {
-        player,
-        matches: matchesResult.rows
-      };
-    } finally {
-      await pool.end();
-    }
-  });
-
-  app.put<{ Params: PlayerParams; Body: { displayName?: string; active?: boolean } }>("/players/:id", async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { displayName, active } = request.body;
-
-      if (displayName !== undefined && displayName.trim() === "") {
-        return reply.status(400).send({
-          error: "ValidationError",
-          message: "displayName cannot be empty"
-        });
-      }
-
-      const updates: string[] = [];
-      const values: any[] = [];
-      let paramIndex = 1;
-
-      if (displayName !== undefined) {
-        updates.push(`display_name = $${paramIndex}`);
-        values.push(displayName.trim());
-        paramIndex++;
-      }
-
-      if (active !== undefined) {
-        updates.push(`active = $${paramIndex}`);
-        values.push(active);
-        paramIndex++;
-      }
-
-      if (updates.length === 0) {
-        return reply.status(400).send({
-          error: "ValidationError",
-          message: "No fields to update"
-        });
-      }
-
-      updates.push(`updated_at = NOW()`);
-      values.push(request.params.id);
-
-      const result = await pool.query(
-        `
-          UPDATE players
-          SET ${updates.join(", ")}
-          WHERE id = $${paramIndex}
-          RETURNING
-            id,
-            display_name AS "displayName",
-            active,
-            legacy_id AS "legacyId",
-            created_at AS "createdAt",
-            club_id AS "clubId"
-        `,
-        values
-      );
-
-      if (result.rows.length === 0) {
-        return reply.status(404).send({
-          error: "NotFound",
-          message: "Player not found"
-        });
-      }
-
-      return reply.status(200).send({ player: result.rows[0] });
-    } finally {
-      await pool.end();
-    }
-  });
-
   app.put<{ Params: TournamentParams; Body: { name?: string; startsOn?: string; status?: string } }>("/tournaments/:id", async (request, reply) => {
     const pool = createPool();
     try {
@@ -692,13 +368,4 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
   });
 
   return app;
-}
-
-async function defaultDatabasePing(): Promise<void> {
-  const pool = createPool();
-  try {
-    await pool.query("select 1");
-  } finally {
-    await pool.end();
-  }
 }
