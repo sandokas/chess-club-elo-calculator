@@ -37,3 +37,6 @@ coverage/
 .agents/
 .codex/
 .pytest_cache/
+
+# Backups
+backups/

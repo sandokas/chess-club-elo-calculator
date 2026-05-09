@@ -775,7 +775,6 @@ function TournamentDetailPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Round</TableHead>
-                        {state.data.tournament.status === "active" && <TableHead>Board</TableHead>}
                         <TableHead className="hidden sm:table-cell">White</TableHead>
                         <TableHead className="hidden sm:table-cell">Black</TableHead>
                         <TableHead>Result</TableHead>
@@ -786,7 +785,6 @@ function TournamentDetailPage() {
                       {state.data.matches.map((match) => (
                         <TableRow key={match.id}>
                           <TableCell>{match.roundNumber ?? "—"}</TableCell>
-                          {state.data.tournament.status === "active" && <TableCell>{match.boardNumber ?? "-"}</TableCell>}
                           <TableCell className="hidden sm:table-cell">{renderPlayerOutcome("white", match.result, match.whitePlayerId, match.whitePlayerName)}</TableCell>
                           <TableCell className="hidden sm:table-cell">{renderPlayerOutcome("black", match.result, match.blackPlayerId, match.blackPlayerName)}</TableCell>
                           <TableCell>{formatCompactResult(match.result)}</TableCell>
