@@ -31,7 +31,6 @@
     --card-foreground: 248 250 252;
     --popover: 30 41 59;
     --popover-foreground: 248 250 252;
-    --primary: 47 111 115;
     --primary-foreground: 255 255 255;
     --secondary: 30 41 59;
     --secondary-foreground: 248 250 252;
@@ -43,7 +42,6 @@
     --destructive-foreground: 255 255 255;
     --border: 51 65 85;
     --input: 51 65 85;
-    --ring: 47 111 115;
     --radius: 0.5rem;
   }
 }
@@ -82,7 +80,7 @@ body {
 
 .eyebrow {
   margin: 0 0 8px;
-  color: #2f6f73;
+  color: rgb(var(--primary));
   font-size: 0.82rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -98,7 +96,7 @@ h1 {
 .lede {
   max-width: 60ch;
   margin: 20px 0 28px;
-  color: #52616b;
+  color: rgb(var(--muted-foreground));
   font-size: 1.05rem;
   line-height: 1.6;
 }
@@ -110,10 +108,11 @@ h1 {
   width: min(520px, 100%);
   min-height: 84px;
   padding: 18px;
-  border: 1px solid #d6ded8;
+  border: 1px solid rgb(var(--border));
   border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 14px 36px rgb(31 41 51 / 8%);
+  background: rgb(var(--card));
+  color: rgb(var(--card-foreground));
+  box-shadow: 0 14px 36px rgb(0 0 0 / 8%);
 }
 
 .health-dot {
@@ -121,7 +120,7 @@ h1 {
   height: 14px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: #9aa6ac;
+  background: rgb(var(--muted-foreground));
 }
 
 .health-card--ok .health-dot {
@@ -129,7 +128,7 @@ h1 {
 }
 
 .health-card--error .health-dot {
-  background: #d9480f;
+  background: rgb(var(--destructive));
 }
 
 .stats-grid {
@@ -142,9 +141,10 @@ h1 {
 .stat-card,
 .panel,
 .tournament-card {
-  border: 1px solid #d6ded8;
-  background: #ffffff;
-  box-shadow: 0 14px 36px rgb(31 41 51 / 8%);
+  border: 1px solid rgb(var(--border));
+  background: rgb(var(--card));
+  color: rgb(var(--card-foreground));
+  box-shadow: 0 14px 36px rgb(0 0 0 / 8%);
 }
 
 .stat-card {
@@ -154,7 +154,7 @@ h1 {
 
 .stat-card p {
   margin: 0 0 8px;
-  color: #52616b;
+  color: rgb(var(--muted-foreground));
   font-weight: 700;
 }
 
@@ -181,12 +181,12 @@ h1 {
   gap: 16px;
   align-items: center;
   padding: 18px 20px;
-  border-bottom: 1px solid #e5ebe7;
+  border-bottom: 1px solid rgb(var(--border));
 }
 
 .hero {
   padding: 2rem 0;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid rgb(var(--border));
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -194,17 +194,17 @@ h1 {
 
 .back-button {
   background: none;
-  border: 1px solid #d1d5db;
+  border: 1px solid rgb(var(--border));
   border-radius: 0.375rem;
   padding: 0.5rem 1rem;
   cursor: pointer;
   font-size: 0.875rem;
-  color: #374151;
+  color: rgb(var(--foreground));
   transition: background-color 0.15s;
 }
 
 .back-button:hover {
-  background-color: #f3f4f6;
+  background-color: rgb(var(--accent));
 }
 
 .panel-heading h2 {
@@ -213,7 +213,7 @@ h1 {
 }
 
 .panel-heading span {
-  color: #52616b;
+  color: rgb(var(--muted-foreground));
   font-size: 0.9rem;
 }
 
@@ -229,13 +229,13 @@ table {
 th,
 td {
   padding: 13px 20px;
-  border-bottom: 1px solid #edf1ee;
+  border-bottom: 1px solid rgb(var(--border));
   text-align: left;
   white-space: nowrap;
 }
 
 th {
-  color: #52616b;
+  color: rgb(var(--muted-foreground));
   font-size: 0.78rem;
   text-transform: uppercase;
 }
@@ -262,7 +262,7 @@ th {
 
 .tournament-card p,
 .tournament-meta {
-  color: #52616b;
+  color: rgb(var(--muted-foreground));
 }
 
 .tournament-meta {

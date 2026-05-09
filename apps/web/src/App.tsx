@@ -11,11 +11,31 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Badge } from "./components/ui/badge.js";
 import { Switch } from "./components/ui/switch.js";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible.js";
+import { Button } from "./components/ui/button.js";
+import { Toaster } from "./components/ui/toaster.js";
+import { EditPlayerDialog } from "./components/player/edit-player-dialog.js";
+import { EditTournamentDialog } from "./components/tournament/edit-tournament-dialog.js";
+import { Pencil } from "lucide-react";
 
 type LoadState =
   | { status: "loading" }
   | { status: "ok"; data: AdminData }
   | { status: "error"; message: string };
+
+type TournamentsListState =
+  | { status: "loading" }
+  | { status: "ok"; data: TournamentsListData }
+  | { status: "error"; message: string };
+
+type TournamentsListData = {
+  tournaments: Tournament[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
 
 type PlayersListState =
   | { status: "loading" }
@@ -77,6 +97,7 @@ type AdminData = {
   club: Club;
   players: Player[];
   tournaments: Tournament[];
+  totalTournaments: number;
   leaderboard: LeaderboardEntry[];
 };
 
@@ -91,10 +112,12 @@ export function App() {
         <Routes>
           <Route path="/" element={<AdminOverviewPage />} />
           <Route path="/players" element={<PlayersListPage />} />
+          <Route path="/tournaments" element={<TournamentsListPage />} />
           <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
           <Route path="/players/:id" element={<PlayerDetailPage />} />
         </Routes>
       </main>
+      <Toaster />
     </div>
   );
 }
@@ -426,6 +449,211 @@ function PlayersListPage() {
   );
 }
 
+function TournamentsListPage() {
+  const [state, setState] = useState<TournamentsListState>({ status: "loading" });
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = parseInt(searchParams.get("page") || "1", 10);
+  const limit = parseInt(searchParams.get("limit") || "20", 10);
+  const sortBy = searchParams.get("sortBy") || "startsOn";
+  const sortOrder = (searchParams.get("sortOrder") === "asc" || searchParams.get("sortOrder") === "desc") ? searchParams.get("sortOrder") as "asc" | "desc" : "desc";
+
+  const name = searchParams.get("name") || "";
+  const status = searchParams.get("status") || "";
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    loadTournamentsList(controller.signal, page, limit, sortBy, sortOrder, name, status)
+      .then((data) => {
+        setState({ status: "ok", data });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        setState({
+          status: "error",
+          message: error instanceof Error ? error.message : "Unable to load tournaments"
+        });
+      });
+
+    return () => controller.abort();
+  }, [page, limit, sortBy, sortOrder, name, status]);
+
+  const handleSort = (column: string) => {
+    const newSortOrder = sortBy === column ? (sortOrder === "asc" ? "desc" : "asc") : "desc";
+    setSearchParams({ page: "1", sortBy: column, sortOrder: newSortOrder, limit: limit.toString(), name, status });
+  };
+
+  const handlePageChange = (newPage: number) => {
+    setSearchParams({ page: newPage.toString(), sortBy, sortOrder, limit: limit.toString(), name, status });
+  };
+
+  const handleLimitChange = (newLimit: number) => {
+    setSearchParams({ page: "1", sortBy, sortOrder, limit: newLimit.toString(), name, status });
+  };
+
+  const handleFilterChange = (key: string, value: string) => {
+    setSearchParams({ page: "1", sortBy, sortOrder, limit: limit.toString(), name, status, [key]: value });
+  };
+
+  const clearFilters = () => {
+    setSearchParams({ page: "1", sortBy, sortOrder, limit: limit.toString() });
+  };
+
+  const hasFilters = name || status;
+
+  return (
+    <section className="space-y-6 sm:space-y-8" aria-labelledby="tournaments-title">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <p className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider">Chess Club Manager</p>
+          <BackButton />
+        </div>
+        <h1 id="tournaments-title" className="text-2xl sm:text-3xl font-bold">All Tournaments</h1>
+      </header>
+
+      {state.status === "loading" && <AdminOverviewSkeleton />}
+      {state.status === "error" && <StatusCard title="Unable to load tournaments" message={state.message} tone="error" />}
+      {state.status === "ok" && (
+        <>
+          <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Tournaments summary">
+            <StatCard label="Total tournaments" value={state.data.pagination.total} />
+            <StatCard label="Current page" value={state.data.pagination.page} />
+            <StatCard label="Per page" value={state.data.pagination.limit} />
+            <StatCard label="Total pages" value={state.data.pagination.totalPages} />
+          </section>
+
+          <Card>
+            <Collapsible>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <CardTitle className="text-lg sm:text-xl">Tournaments</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CollapsibleTrigger asChild>
+                      <button className="text-xs sm:text-sm text-primary hover:underline">
+                        Filters {hasFilters && "(active)"}
+                      </button>
+                    </CollapsibleTrigger>
+                    {hasFilters && (
+                      <button onClick={clearFilters} className="text-xs sm:text-sm text-muted-foreground hover:underline">
+                        Clear all
+                      </button>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs sm:text-sm text-muted-foreground">Show:</span>
+                      {[10, 20, 50].map((l) => (
+                        <button
+                          key={l}
+                          onClick={() => handleLimitChange(l)}
+                          className={`text-xs sm:text-sm px-2 py-1 rounded ${limit === l ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CollapsibleContent className="px-6 pb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t">
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm font-medium">Name</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => handleFilterChange("name", e.target.value)}
+                      placeholder="Search by name..."
+                      className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs sm:text-sm font-medium">Status</label>
+                    <select
+                      value={status}
+                      onChange={(e) => handleFilterChange("status", e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded-md border border-input bg-background"
+                    >
+                      <option value="">All</option>
+                      <option value="draft">Draft</option>
+                      <option value="active">Active</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="cursor-pointer hover:bg-muted" onClick={() => handleSort("name")}>
+                        Name {sortBy === "name" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-muted" onClick={() => handleSort("status")}>
+                        Status {sortBy === "status" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-muted" onClick={() => handleSort("startsOn")}>
+                        Start Date {sortBy === "startsOn" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-muted" onClick={() => handleSort("playerCount")}>
+                        Players {sortBy === "playerCount" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                      <TableHead className="cursor-pointer hover:bg-muted" onClick={() => handleSort("matchCount")}>
+                        Matches {sortBy === "matchCount" && (sortOrder === "asc" ? "↑" : "↓")}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {state.data.tournaments.map((tournament) => (
+                      <TableRow key={tournament.id}>
+                        <TableCell><Link to={`/tournaments/${tournament.id}`} className="font-medium hover:underline text-sm sm:text-base">{tournament.name}</Link></TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">{tournament.status}</Badge>
+                        </TableCell>
+                        <TableCell>{formatDate(tournament.startsOn)}</TableCell>
+                        <TableCell>{tournament.playerCount}</TableCell>
+                        <TableCell>{tournament.matchCount}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="flex items-center justify-between mt-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePageChange(page - 1)}
+                    disabled={page === 1}
+                    className="px-3 py-1 text-sm rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-muted-foreground">
+                    Page {page} of {state.data.pagination.totalPages}
+                  </span>
+                  <button
+                    onClick={() => handlePageChange(page + 1)}
+                    disabled={page === state.data.pagination.totalPages}
+                    className="px-3 py-1 text-sm rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+                <span className="text-xs sm:text-sm text-muted-foreground">
+                  Showing {((page - 1) * limit) + 1}-{Math.min(page * limit, state.data.pagination.total)} of {state.data.pagination.total}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </section>
+  );
+}
+
 async function loadAdminData(signal: AbortSignal, activeOnly: boolean = true): Promise<AdminData> {
   const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
   const club = clubsPayload.clubs[0];
@@ -433,16 +661,18 @@ async function loadAdminData(signal: AbortSignal, activeOnly: boolean = true): P
     throw new Error("No clubs found in the database.");
   }
 
-  const [playersPayload, tournamentsPayload, leaderboardPayload] = await Promise.all([
+  const [playersPayload, tournamentsPayload, leaderboardPayload, tournamentsCountPayload] = await Promise.all([
     fetchJson<{ players: Player[] }>(`/clubs/${club.id}/players`, signal),
-    fetchJson<{ tournaments: Tournament[] }>(`/clubs/${club.id}/tournaments`, signal),
-    fetchJson<{ leaderboard: LeaderboardEntry[] }>(`/clubs/${club.id}/leaderboard?activeOnly=${activeOnly}`, signal)
+    fetchJson<{ tournaments: Tournament[] }>(`/clubs/${club.id}/tournaments?limit=6`, signal),
+    fetchJson<{ leaderboard: LeaderboardEntry[] }>(`/clubs/${club.id}/leaderboard?activeOnly=${activeOnly}&limit=10`, signal),
+    fetchJson<{ pagination: { total: number } }>(`/clubs/${club.id}/tournaments?limit=1`, signal)
   ]);
 
   return {
     club,
     players: playersPayload.players,
     tournaments: tournamentsPayload.tournaments,
+    totalTournaments: tournamentsCountPayload.pagination.total,
     leaderboard: leaderboardPayload.leaderboard
   };
 }
@@ -474,6 +704,31 @@ async function loadPlayersList(signal: AbortSignal, page: number, limit: number,
 
   const result = await fetchJson<PlayersListData>(
     `/clubs/${club.id}/players?${params.toString()}`,
+    signal
+  );
+
+  return result;
+}
+
+async function loadTournamentsList(signal: AbortSignal, page: number, limit: number, sortBy: string, sortOrder: string, name: string, status: string): Promise<TournamentsListData> {
+  const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
+  const club = clubsPayload.clubs[0];
+  if (!club) {
+    throw new Error("No clubs found in the database.");
+  }
+
+  const params = new URLSearchParams({
+    page: page.toString(),
+    limit: limit.toString(),
+    sortBy,
+    sortOrder
+  });
+
+  if (name) params.append("name", name);
+  if (status) params.append("status", status);
+
+  const result = await fetchJson<TournamentsListData>(
+    `/clubs/${club.id}/tournaments?${params.toString()}`,
     signal
   );
 
@@ -569,7 +824,12 @@ function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminDa
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <CardTitle className="text-lg sm:text-xl">Recent tournaments</CardTitle>
-              <span className="text-xs sm:text-sm text-muted-foreground">{data.tournaments.length} total</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm text-muted-foreground">{data.totalTournaments} total</span>
+                <Link to="/tournaments" className="text-xs sm:text-sm text-primary hover:underline">
+                  View all
+                </Link>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -685,6 +945,7 @@ function TournamentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [state, setState] = useState<TournamentDetailState>({ status: "loading" });
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -711,6 +972,25 @@ function TournamentDetailPage() {
     return () => controller.abort();
   }, [id]);
 
+  const handleSaved = () => {
+    if (id) {
+      const controller = new AbortController();
+      loadTournamentDetail(id, controller.signal)
+        .then((data) => {
+          setState({ status: "ok", data });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          setState({
+            status: "error",
+            message: error instanceof Error ? error.message : "Unable to load tournament"
+          });
+        });
+    }
+  };
+
   return (
     <section className="space-y-6 sm:space-y-8" aria-labelledby="tournament-title">
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
@@ -718,9 +998,17 @@ function TournamentDetailPage() {
           <p className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider">Chess Club Manager</p>
           <BackButton />
         </div>
-        {state.status === "loading" && <h1 id="tournament-title">Loading tournament...</h1>}
-        {state.status === "error" && <h1 id="tournament-title">Error: {state.message}</h1>}
-        {state.status === "ok" && <h1 id="tournament-title" className="text-2xl sm:text-3xl font-bold">{state.data.tournament.name}</h1>}
+        <div className="flex items-center gap-2">
+          {state.status === "loading" && <h1 id="tournament-title">Loading tournament...</h1>}
+          {state.status === "error" && <h1 id="tournament-title">Error: {state.message}</h1>}
+          {state.status === "ok" && <h1 id="tournament-title" className="text-2xl sm:text-3xl font-bold">{state.data.tournament.name}</h1>}
+          {state.status === "ok" && (
+            <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          )}
+        </div>
       </header>
 
       {state.status === "ok" && (
@@ -799,6 +1087,15 @@ function TournamentDetailPage() {
           </div>
         </>
       )}
+
+      {state.status === "ok" && (
+        <EditTournamentDialog
+          tournament={state.data.tournament}
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          onSaved={handleSaved}
+        />
+      )}
     </section>
   );
 }
@@ -820,6 +1117,7 @@ function PlayerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [state, setState] = useState<PlayerDetailState>({ status: "loading" });
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -846,6 +1144,25 @@ function PlayerDetailPage() {
     return () => controller.abort();
   }, [id]);
 
+  const handleSaved = () => {
+    if (id) {
+      const controller = new AbortController();
+      loadPlayerDetail(id, controller.signal)
+        .then((data) => {
+          setState({ status: "ok", data });
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          setState({
+            status: "error",
+            message: error instanceof Error ? error.message : "Unable to load player"
+          });
+        });
+    }
+  };
+
   return (
     <section className="space-y-6 sm:space-y-8" aria-labelledby="player-title">
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
@@ -853,9 +1170,17 @@ function PlayerDetailPage() {
           <p className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider">Chess Club Manager</p>
           <BackButton />
         </div>
-        {state.status === "loading" && <h1 id="player-title">Loading player...</h1>}
-        {state.status === "error" && <h1 id="player-title">Error: {state.message}</h1>}
-        {state.status === "ok" && <h1 id="player-title" className="text-2xl sm:text-3xl font-bold">{state.data.player.displayName}</h1>}
+        <div className="flex items-center gap-2">
+          {state.status === "loading" && <h1 id="player-title">Loading player...</h1>}
+          {state.status === "error" && <h1 id="player-title">Error: {state.message}</h1>}
+          {state.status === "ok" && <h1 id="player-title" className="text-2xl sm:text-3xl font-bold">{state.data.player.displayName}</h1>}
+          {state.status === "ok" && (
+            <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
+              <Pencil className="h-4 w-4 mr-2" />
+              Edit
+            </Button>
+          )}
+        </div>
       </header>
 
       {state.status === "ok" && (
@@ -919,6 +1244,15 @@ function PlayerDetailPage() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {state.status === "ok" && (
+        <EditPlayerDialog
+          player={state.data.player}
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          onSaved={handleSaved}
+        />
       )}
     </section>
   );

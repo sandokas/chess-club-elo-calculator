@@ -12,22 +12,23 @@ export function applyColorPalette(palette: ColorPalette) {
   const root = document.documentElement;
   const colors = colorPalettes[palette];
   root.style.setProperty("--primary", colors.primary);
+  root.style.setProperty("--ring", colors.primary);
 }
 
 export function getStoredTheme(): "light" | "dark" | null {
-  return localStorage.getItem("theme") as "light" | "dark" | null;
+  return localStorage.getItem("chess-club-theme") as "light" | "dark" | null;
 }
 
 export function setStoredTheme(theme: "light" | "dark") {
-  localStorage.setItem("theme", theme);
+  localStorage.setItem("chess-club-theme", theme);
 }
 
 export function getStoredColorPalette(): ColorPalette | null {
-  return localStorage.getItem("colorPalette") as ColorPalette | null;
+  return localStorage.getItem("chess-club-color-palette") as ColorPalette | null;
 }
 
 export function setStoredColorPalette(palette: ColorPalette) {
-  localStorage.setItem("colorPalette", palette);
+  localStorage.setItem("chess-club-color-palette", palette);
 }
 
 export function getSystemTheme(): "light" | "dark" {

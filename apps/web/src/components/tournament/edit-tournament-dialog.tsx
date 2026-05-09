@@ -1,0 +1,156 @@
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Pencil, Loader2, AlertCircle } from "lucide-react";
+
+import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { useToast } from "../../hooks/use-toast";
+import { putJson } from "../../lib/api";
+import { tournamentEditSchema, type TournamentEditInput } from "../../lib/schemas";
+
+type Tournament = {
+  id: string;
+  name: string;
+  startsOn: string | null;
+  status: string;
+};
+
+interface EditTournamentDialogProps {
+  tournament: Tournament;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}
+
+export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }: EditTournamentDialogProps) {
+  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isCompleted = tournament.status === "completed";
+
+  const form = useForm<TournamentEditInput>({
+    resolver: zodResolver(tournamentEditSchema),
+    defaultValues: {
+      name: tournament.name,
+      startsOn: tournament.startsOn ? tournament.startsOn.split('T')[0] : "",
+      status: tournament.status as "draft" | "active" | "completed",
+    },
+  });
+
+  const currentStatus = form.watch("status");
+
+  const onSubmit = async (data: TournamentEditInput) => {
+    setIsSubmitting(true);
+    try {
+      await putJson<{ tournament: Tournament }>(`/tournaments/${tournament.id}`, data);
+      toast({
+        title: "Tournament updated",
+        description: "Tournament details have been updated successfully.",
+      });
+      onOpenChange(false);
+      onSaved();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update tournament",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Edit Tournament</DialogTitle>
+          <DialogDescription>
+            Update tournament details. Click save when you're done.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              {...form.register("name")}
+              disabled={isSubmitting || isCompleted}
+            />
+            {form.formState.errors.name && (
+              <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="startsOn">Start Date</Label>
+            <Input
+              id="startsOn"
+              type="date"
+              {...form.register("startsOn")}
+              disabled={isSubmitting || isCompleted}
+            />
+            {form.formState.errors.startsOn && (
+              <p className="text-sm text-destructive">{form.formState.errors.startsOn.message}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="status">Status</Label>
+            <select
+              id="status"
+              {...form.register("status")}
+              disabled={isSubmitting}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <option value="draft">Draft</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+            </select>
+            {form.formState.errors.status && (
+              <p className="text-sm text-destructive">{form.formState.errors.status.message}</p>
+            )}
+          </div>
+          {isCompleted && (
+            <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
+              <AlertCircle className="h-4 w-4 mt-0.5" />
+              <p>
+                Tournament is completed. Name and start date are locked. Change status to Active to edit details.
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Save
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

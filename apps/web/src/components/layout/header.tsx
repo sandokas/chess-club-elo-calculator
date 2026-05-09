@@ -1,6 +1,6 @@
+import { Crown } from "lucide-react";
 import { ThemeSwitcher } from "./theme-switcher.js";
 import { ColorPaletteSwitcher } from "./color-palette-switcher.js";
-import { Crown } from "lucide-react";
 
 export function Header() {
   return (
@@ -12,7 +12,7 @@ export function Header() {
           </div>
           <h1 className="text-base sm:text-xl font-bold">Chess Club Manager</h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <ColorPaletteSwitcher />
           <ThemeSwitcher />
         </div>
