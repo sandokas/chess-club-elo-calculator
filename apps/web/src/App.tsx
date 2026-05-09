@@ -417,9 +417,11 @@ function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminDa
       <header>
         <p className="text-xs sm:text-sm font-semibold text-primary mb-2 uppercase tracking-wider">Chess Club Manager</p>
         <h1 id="app-title" className="text-2xl sm:text-3xl md:text-4xl font-bold">{data.club.name}</h1>
-        <p className="text-muted-foreground mt-2 max-w-2xl text-sm sm:text-base">
-          Imported club data is now available through the Node API. This admin overview is the first step toward replacing the Python CLI workflows.
-        </p>
+        {(data.club.description || (data.club.city && data.club.country)) && (
+          <p className="text-muted-foreground mt-2 max-w-2xl text-sm sm:text-base">
+            {data.club.description || `${data.club.city}, ${data.club.country}`}
+          </p>
+        )}
       </header>
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4" aria-label="Club summary">
