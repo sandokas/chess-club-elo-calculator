@@ -292,8 +292,9 @@ def recompute_from_match(conn, match_id: int):
             days1 = 0
             days2 = 0
 
-        new_r1, new_rd1, new_vol1 = glicko2.glicko2_update(r1, rd1, vol1, r2, rd2, vol2, result, days=days1)
-        new_r2, new_rd2, new_vol2 = glicko2.glicko2_update(r2, rd2, vol2, r1, rd1, vol1, 1 - result, days=days2)
+        (new_r1, new_rd1, new_vol1), (new_r2, new_rd2, new_vol2) = ratings.compute_glicko_update(
+            r1, rd1, vol1, r2, rd2, vol2, result, days1, days2
+        )
 
         # persist Glicko + last-game together
         d = r[4]
