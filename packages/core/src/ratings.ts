@@ -1,6 +1,6 @@
 import { defaultRatingConfig, type RatingConfig } from "./config.js";
 import { computeEloChange } from "./elo.js";
-import { glicko2Update, type GlickoProfile } from "./glicko2.js";
+import { glicko2Update, inflateRd, type GlickoProfile } from "./glicko2.js";
 
 export type RatingProfile = {
   elo: number;
@@ -35,7 +35,8 @@ export function defaultRatingProfile(config: RatingConfig = defaultRatingConfig)
     glicko: {
       rating: config.g2DefaultRating,
       rd: config.g2DefaultRd,
-      vol: config.g2DefaultVol
+      vol: config.g2DefaultVol,
+      lastGameDate: null
     },
     gamesPlayed: 0,
     lastGameDate: null
@@ -54,6 +55,16 @@ function daysBetween(previous: string | null, current: string): number {
   return Math.max(0, Math.floor((currentTime - previousTime) / 86_400_000));
 }
 
+function computeGlickoUpdate(
+  player: GlickoProfile,
+  opponent: GlickoProfile,
+  score: number,
+  matchDate: string,
+  config: RatingConfig
+): GlickoProfile {
+  return glicko2Update(player, opponent, score, matchDate, { config });
+}
+
 export function applyRatedMatch(
   white: RatingProfile,
   black: RatingProfile,
@@ -70,14 +81,8 @@ export function applyRatedMatch(
     config
   );
 
-  const whiteGlickoAfter = glicko2Update(white.glicko, black.glicko, result, {
-    days: daysBetween(white.lastGameDate, matchDate),
-    config
-  });
-  const blackGlickoAfter = glicko2Update(black.glicko, white.glicko, 1 - result, {
-    days: daysBetween(black.lastGameDate, matchDate),
-    config
-  });
+  const whiteGlickoAfter = computeGlickoUpdate(white.glicko, black.glicko, result, matchDate, config);
+  const blackGlickoAfter = computeGlickoUpdate(black.glicko, white.glicko, 1 - result, matchDate, config);
 
   return {
     white: {

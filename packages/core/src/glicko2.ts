@@ -50,17 +50,32 @@ export type GlickoProfile = {
   rating: number;
   rd: number;
   vol: number;
+  lastGameDate: string | null;
 };
+
+function daysBetween(previous: string | null, current: string): number {
+  if (!previous) {
+    return 0;
+  }
+  const previousTime = Date.parse(`${previous}T00:00:00.000Z`);
+  const currentTime = Date.parse(`${current}T00:00:00.000Z`);
+  if (Number.isNaN(previousTime) || Number.isNaN(currentTime)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((currentTime - previousTime) / 86_400_000));
+}
 
 export function glicko2Update(
   player: GlickoProfile,
   opponent: GlickoProfile,
   score: number,
-  options: { tau?: number; days?: number; config?: RatingConfig } = {}
+  matchDate: string,
+  options: { tau?: number; config?: RatingConfig } = {}
 ): GlickoProfile {
   const tau = options.tau ?? TAU;
-  const days = options.days ?? 0;
   const config = options.config ?? defaultRatingConfig;
+  const days = daysBetween(player.lastGameDate, matchDate);
+  const opponentDays = daysBetween(opponent.lastGameDate, matchDate);
 
   const mu = toMu(player.rating);
   const rdStar =
@@ -69,7 +84,7 @@ export function glicko2Update(
       : player.rd;
   const phi = toPhi(rdStar);
   const muJ = toMu(opponent.rating);
-  const phiJ = toPhi(opponent.rd);
+  const phiJ = toPhi(inflateRd(opponent.rd, opponentDays, config));
 
   const gValue = g(phiJ);
   const eValue = expected(mu, muJ, phiJ);
@@ -117,6 +132,7 @@ export function glicko2Update(
   return {
     rating: toRating(muPrime),
     rd: toRd(phiPrime),
-    vol: newSigma
+    vol: newSigma,
+    lastGameDate: matchDate
   };
 }

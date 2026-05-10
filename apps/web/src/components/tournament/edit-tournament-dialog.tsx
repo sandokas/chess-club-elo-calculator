@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Pencil, Loader2, AlertCircle } from "lucide-react";
+import { Pencil, Loader2, AlertCircle, Trash2 } from "lucide-react";
 
 import { Button } from "../ui/button";
 import {
@@ -15,7 +15,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { useToast } from "../../hooks/use-toast";
-import { putJson } from "../../lib/api";
+import { putJson, deleteJson } from "../../lib/api";
 import { tournamentEditSchema, type TournamentEditInput } from "../../lib/schemas";
 
 type Tournament = {
@@ -36,6 +36,7 @@ interface EditTournamentDialogProps {
 export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }: EditTournamentDialogProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const isCompleted = tournament.status === "completed";
   const isDraft = tournament.status === "draft";
 
@@ -69,6 +70,30 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Are you sure you want to delete "${tournament.name}"? This action cannot be undone.`)) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      await deleteJson(`/tournaments/${tournament.id}`);
+      toast({
+        title: "Tournament deleted",
+        description: "Tournament has been deleted successfully.",
+      });
+      onOpenChange(false);
+      window.location.href = "/tournaments";
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete tournament",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -152,15 +177,35 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
             </div>
           )}
           <DialogFooter>
+            {isDraft && (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={isDeleting || isSubmitting}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </>
+                )}
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isDeleting}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting || isDeleting}>
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
