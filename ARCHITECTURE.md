@@ -4,10 +4,9 @@ This repository contains a TypeScript web application for chess club management.
 
 ## Monorepo Layout
 
-- `apps/api` - Fastify API server.
+- `apps/api` - Fastify API server. Contains rating calculation logic (Elo, Glicko-2) in `src/lib/ratings/`.
 - `apps/web` - React + Vite frontend shell.
 - `packages/config` - shared environment validation.
-- `packages/core` - pure chess domain logic: Elo, Glicko-2, rating recompute, and future Swiss pairing logic.
 - `packages/db` - Drizzle schema, PostgreSQL client, migrations, and SQLite import scripts.
 
 ## Database Direction
@@ -37,7 +36,7 @@ Unauthenticated users can only see safe club metadata. Real names, rosters, tour
 - Maps legacy `player1_id` to `white_player_id`
 - Maps legacy `player2_id` to `black_player_id`
 - Preserves legacy IDs for traceability
-- Recomputes rating state using the TypeScript core package
+- Recomputes rating state using the rating logic in apps/api/src/lib/ratings/
 
 Historical colors are inferred from the old player1/player2 columns because the CLI did not track real white/black colors.
 

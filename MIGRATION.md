@@ -17,10 +17,13 @@ This document tracks the migration of the Chess Club Manager from a Python CLI a
 - ✅ `GET /health` - Health check
 - ✅ `GET /health/db` - Database health check
 - ✅ `GET /clubs` - List clubs (database-backed)
+- ✅ `PATCH /clubs/:clubId` - Update club details (name, description, city, country)
+- ✅ `POST /clubs/:clubId/ratings/recompute` - Recalculate all player ratings (Elo and Glicko-2)
 - ✅ `GET /clubs/:clubId/players` - List players with pagination, filtering, sorting
 - ✅ `GET /clubs/:clubId/tournaments` - List tournaments
 - ✅ `GET /clubs/:clubId/leaderboard` - Club leaderboard
 - ✅ `GET /tournaments/:id` - Tournament detail with matches and standings
+- ✅ `DELETE /tournaments/:id` - Delete tournament (draft only)
 - ✅ `GET /players/:id` - Player detail with match history
 
 **Web Pages (apps/web/src/App.tsx):**
@@ -29,11 +32,15 @@ This document tracks the migration of the Chess Club Manager from a Python CLI a
 - ✅ Tournament detail page (matches, standings)
 - ✅ Player detail page (info, match history, rating history)
 
+**Web UI Components:**
+- ✅ Edit Club dialog (update club name, description, city, country)
+- ✅ Recompute Ratings dialog (trigger full rating recalculation)
+
 **Infrastructure:**
 - ✅ pnpm workspace monorepo structure
 - ✅ Docker Compose for local development
 - ✅ PostgreSQL database schema (Drizzle)
-- ✅ TypeScript core package (Elo, Glicko-2 rating logic)
+- ✅ Rating calculation logic in apps/api/src/lib/ratings/ (Elo, Glicko-2)
 - ✅ SQLite import script
 
 ### ❌ Not Implemented

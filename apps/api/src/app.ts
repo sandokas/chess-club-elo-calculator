@@ -5,6 +5,7 @@ import { registerHealthRoutes, type HealthOptions } from "./routes/health.js";
 import { registerPlayerRoutes } from "./routes/players.js";
 import { asHttpError, createErrorResponse } from "./lib/errors.js";
 import { generateSwissPairings } from "./lib/swiss-pairing.js";
+import { recomputeRatings, type MatchInput } from "./lib/ratings/ratings.js";
 
 export type AppOptions = {
   databasePing?: () => Promise<void>;
@@ -49,6 +50,227 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         ORDER BY name
       `);
       return { clubs: result.rows };
+    } finally {
+      await pool.end();
+    }
+  });
+
+  app.patch<{ Params: ClubParams; Body: { name?: string; description?: string; city?: string; country?: string } }>("/clubs/:clubId", async (request, reply) => {
+    const pool = createPool();
+    try {
+      const { name, description, city, country } = request.body;
+
+      if (name !== undefined && name.trim() === "") {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "name cannot be empty"
+        });
+      }
+
+      const updates: string[] = [];
+      const values: any[] = [];
+      let paramIndex = 1;
+
+      if (name !== undefined) {
+        updates.push(`name = $${paramIndex}`);
+        values.push(name.trim());
+        paramIndex++;
+      }
+
+      if (description !== undefined) {
+        updates.push(`description = $${paramIndex}`);
+        values.push(description.trim() || null);
+        paramIndex++;
+      }
+
+      if (city !== undefined) {
+        updates.push(`city = $${paramIndex}`);
+        values.push(city.trim() || null);
+        paramIndex++;
+      }
+
+      if (country !== undefined) {
+        updates.push(`country = $${paramIndex}`);
+        values.push(country.trim() || null);
+        paramIndex++;
+      }
+
+      if (updates.length === 0) {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "No fields to update"
+        });
+      }
+
+      updates.push(`updated_at = NOW()`);
+      values.push(request.params.clubId);
+
+      const result = await pool.query(
+        `
+          UPDATE clubs
+          SET ${updates.join(", ")}
+          WHERE id = $${paramIndex}
+          RETURNING
+            id,
+            name,
+            slug,
+            description,
+            city,
+            country,
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+        `,
+        values
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          error: "NotFound",
+          message: "Club not found"
+        });
+      }
+
+      return reply.status(200).send({ club: result.rows[0] });
+    } finally {
+      await pool.end();
+    }
+  });
+
+  app.post<{ Params: ClubParams }>("/clubs/:clubId/ratings/recompute", async (request, reply) => {
+    const pool = createPool();
+    try {
+      // Fetch all players for the club
+      const playersResult = await pool.query(
+        `SELECT id FROM players WHERE club_id = $1`,
+        [request.params.clubId]
+      );
+
+      if (playersResult.rows.length === 0) {
+        return reply.status(200).send({
+          message: "No players found in club",
+          playersUpdated: 0
+        });
+      }
+
+      const playerIds = playersResult.rows.map(row => row.id);
+
+      // Fetch all completed matches for the club
+      const matchesResult = await pool.query(
+        `
+          SELECT
+            m.id,
+            m.white_player_id AS "whitePlayerId",
+            m.black_player_id AS "blackPlayerId",
+            m.result,
+            m.played_on AS "playedOn"
+          FROM matches m
+          WHERE m.club_id = $1
+            AND m.status = 'completed'
+            AND m.result IS NOT NULL
+          ORDER BY m.played_on ASC, m.id ASC
+        `,
+        [request.params.clubId]
+      );
+
+      if (matchesResult.rows.length === 0) {
+        return reply.status(200).send({
+          message: "No completed matches found in club",
+          playersUpdated: 0
+        });
+      }
+
+      const matches: MatchInput[] = matchesResult.rows.map(row => ({
+        id: row.id,
+        whitePlayerId: row.whitePlayerId,
+        blackPlayerId: row.blackPlayerId,
+        result: row.result,
+        date: row.playedOn
+      }));
+
+      // Recompute ratings using the core library
+      const { profiles, audits } = recomputeRatings(playerIds, matches);
+
+      // Update player ratings in the database
+      let updatedCount = 0;
+      for (const [playerId, profile] of profiles.entries()) {
+        await pool.query(
+          `
+            UPDATE player_ratings
+            SET
+              elo = $1,
+              glicko_rating = $2,
+              glicko_rd = $3,
+              glicko_vol = $4,
+              games_played = $5,
+              last_game_date = $6,
+              updated_at = NOW()
+            WHERE player_id = $7
+          `,
+          [
+            profile.elo,
+            profile.glicko.rating,
+            profile.glicko.rd,
+            profile.glicko.vol,
+            profile.gamesPlayed,
+            profile.lastGameDate,
+            playerId
+          ]
+        );
+        updatedCount++;
+      }
+
+      // Update match rating audits
+      for (const audit of audits) {
+        await pool.query(
+          `
+            UPDATE matches
+            SET
+              white_elo_before = $1,
+              white_elo_after = $2,
+              black_elo_before = $3,
+              black_elo_after = $4,
+              white_glicko_rating_before = $5,
+              white_glicko_rating_after = $6,
+              white_glicko_rd_before = $7,
+              white_glicko_rd_after = $8,
+              white_glicko_vol_before = $9,
+              white_glicko_vol_after = $10,
+              black_glicko_rating_before = $11,
+              black_glicko_rating_after = $12,
+              black_glicko_rd_before = $13,
+              black_glicko_rd_after = $14,
+              black_glicko_vol_before = $15,
+              black_glicko_vol_after = $16,
+              updated_at = NOW()
+            WHERE id = $17
+          `,
+          [
+            audit.whiteEloBefore,
+            audit.whiteEloAfter,
+            audit.blackEloBefore,
+            audit.blackEloAfter,
+            audit.whiteGlickoBefore.rating,
+            audit.whiteGlickoAfter.rating,
+            audit.whiteGlickoBefore.rd,
+            audit.whiteGlickoAfter.rd,
+            audit.whiteGlickoBefore.vol,
+            audit.whiteGlickoAfter.vol,
+            audit.blackGlickoBefore.rating,
+            audit.blackGlickoAfter.rating,
+            audit.blackGlickoBefore.rd,
+            audit.blackGlickoAfter.rd,
+            audit.blackGlickoBefore.vol,
+            audit.blackGlickoAfter.vol,
+            audit.matchId
+          ]
+        );
+      }
+
+      return reply.status(200).send({
+        message: "Ratings recomputed successfully",
+        playersUpdated: updatedCount,
+        matchesAudited: audits.length
+      });
     } finally {
       await pool.end();
     }
@@ -235,7 +457,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      return reply.status(204).send();
+      return reply.status(200).send({ message: "Tournament deleted successfully" });
     } finally {
       await pool.end();
     }

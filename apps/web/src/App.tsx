@@ -17,7 +17,9 @@ import { EditTournamentDialog } from "./components/tournament/edit-tournament-di
 import { CreateTournamentDialog } from "./components/tournament/create-tournament-dialog.js";
 import { TournamentRosterManager } from "./components/tournament/tournament-roster-manager.js";
 import { EditPlayerDialog } from "./components/player/edit-player-dialog.js";
-import { Pencil, Plus } from "lucide-react";
+import { EditClubDialog } from "./components/club/edit-club-dialog.js";
+import { RecomputeRatingsDialog } from "./components/club/recompute-ratings-dialog.js";
+import { Pencil, Plus, Settings, RefreshCw } from "lucide-react";
 import { PlayersListPage } from "./pages/players-list.js";
 import { PlayerDetailPage } from "./pages/player-detail.js";
 import { formatRating, formatDate, formatCompactResult } from "./lib/formatters.js";
@@ -460,17 +462,33 @@ function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminDa
   const topPlayers = data.leaderboard.slice(0, 10);
   const recentTournaments = data.tournaments.slice(0, 6);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editClubDialogOpen, setEditClubDialogOpen] = useState(false);
+  const [recomputeRatingsDialogOpen, setRecomputeRatingsDialogOpen] = useState(false);
 
   return (
     <section className="space-y-6 sm:space-y-8" aria-labelledby="app-title">
       <header>
-        <p className="text-xs sm:text-sm font-semibold text-primary mb-2 uppercase tracking-wider">Chess Club Manager</p>
-        <h1 id="app-title" className="text-2xl sm:text-3xl md:text-4xl font-bold">{data.club.name}</h1>
-        {(data.club.description || (data.club.city && data.club.country)) && (
-          <p className="text-muted-foreground mt-2 max-w-2xl text-sm sm:text-base">
-            {data.club.description || `${data.club.city}, ${data.club.country}`}
-          </p>
-        )}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1">
+            <p className="text-xs sm:text-sm font-semibold text-primary mb-2 uppercase tracking-wider">Chess Club Manager</p>
+            <h1 id="app-title" className="text-2xl sm:text-3xl md:text-4xl font-bold">{data.club.name}</h1>
+            {(data.club.description || (data.club.city && data.club.country)) && (
+              <p className="text-muted-foreground mt-2 max-w-2xl text-sm sm:text-base">
+                {data.club.description || `${data.club.city}, ${data.club.country}`}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setEditClubDialogOpen(true)}>
+              <Settings className="h-4 w-4 mr-2" />
+              Edit Club
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setRecomputeRatingsDialogOpen(true)}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Recompute Ratings
+            </Button>
+          </div>
+        </div>
       </header>
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4" aria-label="Club summary">
@@ -582,6 +600,28 @@ function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminDa
         onOpenChange={setCreateDialogOpen}
         onCreated={(tournamentId) => {
           window.location.href = `/tournaments/${tournamentId}`;
+        }}
+      />
+      <EditClubDialog
+        clubId={data.club.id}
+        open={editClubDialogOpen}
+        onOpenChange={setEditClubDialogOpen}
+        currentClub={{
+          name: data.club.name,
+          description: data.club.description,
+          city: data.club.city,
+          country: data.club.country,
+        }}
+        onUpdated={() => {
+          window.location.reload();
+        }}
+      />
+      <RecomputeRatingsDialog
+        clubId={data.club.id}
+        open={recomputeRatingsDialogOpen}
+        onOpenChange={setRecomputeRatingsDialogOpen}
+        onRecomputed={() => {
+          // Data will be refreshed when user closes dialog
         }}
       />
     </section>

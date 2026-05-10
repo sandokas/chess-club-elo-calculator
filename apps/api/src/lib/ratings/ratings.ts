@@ -121,7 +121,7 @@ export function recomputeRatings(
   }
 
   const audits: MatchRatingAudit[] = [];
-  const sortedMatches = [...matches].sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+  const sortedMatches = [...matches].sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
 
   for (const match of sortedMatches) {
     if (match.result === null) {
