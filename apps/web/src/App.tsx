@@ -14,8 +14,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./component
 import { Button } from "./components/ui/button.js";
 import { Toaster } from "./components/ui/toaster.js";
 import { EditTournamentDialog } from "./components/tournament/edit-tournament-dialog.js";
+import { CreateTournamentDialog } from "./components/tournament/create-tournament-dialog.js";
+import { TournamentRosterManager } from "./components/tournament/tournament-roster-manager.js";
 import { EditPlayerDialog } from "./components/player/edit-player-dialog.js";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { PlayersListPage } from "./pages/players-list.js";
 import { PlayerDetailPage } from "./pages/player-detail.js";
 import { formatRating, formatDate, formatCompactResult } from "./lib/formatters.js";
@@ -147,6 +149,8 @@ function AdminOverviewPage() {
 function TournamentsListPage() {
   const [state, setState] = useState<TournamentsListState>({ status: "loading" });
   const [searchParams, setSearchParams] = useSearchParams();
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [clubId, setClubId] = useState<string | null>(null);
 
   const page = parseInt(searchParams.get("page") || "1", 10);
   const limit = parseInt(searchParams.get("limit") || "20", 10);
@@ -162,6 +166,15 @@ function TournamentsListPage() {
     loadTournamentsList(controller.signal, page, limit, sortBy, sortOrder, name, status)
       .then((data) => {
         setState({ status: "ok", data });
+        // Get clubId from the first club
+        fetch(`${apiBaseUrl}/clubs`, { signal: controller.signal })
+          .then(res => res.json())
+          .then((clubsData: { clubs: { id: string }[] }) => {
+            if (clubsData.clubs.length > 0 && clubsData.clubs[0]) {
+              setClubId(clubsData.clubs[0].id);
+            }
+          })
+          .catch(() => {});
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -206,19 +219,41 @@ function TournamentsListPage() {
           <p className="text-xs sm:text-sm font-semibold text-primary uppercase tracking-wider">Chess Club Manager</p>
           <BackButton />
         </div>
-        <h1 id="tournaments-title" className="text-2xl sm:text-3xl font-bold">All Tournaments</h1>
+        <div className="flex items-center gap-2">
+          <h1 id="tournaments-title" className="text-2xl sm:text-3xl font-bold">All Tournaments</h1>
+          {clubId && (
+            <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Create
+            </Button>
+          )}
+        </div>
       </header>
 
       {state.status === "loading" && <AdminOverviewSkeleton />}
       {state.status === "error" && <StatusCard title="Unable to load tournaments" message={state.message} tone="error" />}
       {state.status === "ok" && (
         <>
-          <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Tournaments summary">
-            <StatCard label="Total tournaments" value={state.data.pagination.total} />
-            <StatCard label="Current page" value={state.data.pagination.page} />
-            <StatCard label="Per page" value={state.data.pagination.limit} />
-            <StatCard label="Total pages" value={state.data.pagination.totalPages} />
-          </section>
+          {state.data.pagination.total === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <p className="text-muted-foreground text-lg mb-4">No tournaments yet</p>
+                {clubId && (
+                  <Button onClick={() => setCreateDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create your first tournament
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Tournaments summary">
+                <StatCard label="Total tournaments" value={state.data.pagination.total} />
+                <StatCard label="Current page" value={state.data.pagination.page} />
+                <StatCard label="Per page" value={state.data.pagination.limit} />
+                <StatCard label="Total pages" value={state.data.pagination.totalPages} />
+              </section>
 
           <Card>
             <Collapsible>
@@ -345,7 +380,20 @@ function TournamentsListPage() {
               </div>
             </CardContent>
           </Card>
+            </>
+          )}
         </>
+      )}
+      {clubId && (
+        <CreateTournamentDialog
+          clubId={clubId}
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          onCreated={(tournamentId) => {
+            // Navigate to tournament detail page
+            window.location.href = `/tournaments/${tournamentId}`;
+          }}
+        />
       )}
     </section>
   );
@@ -411,6 +459,7 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
 function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminData; activeOnly: boolean; onActiveOnlyChange: (value: boolean) => void }) {
   const topPlayers = data.leaderboard.slice(0, 10);
   const recentTournaments = data.tournaments.slice(0, 6);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
 
   return (
     <section className="space-y-6 sm:space-y-8" aria-labelledby="app-title">
@@ -492,6 +541,10 @@ function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminDa
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <CardTitle className="text-lg sm:text-xl">Recent tournaments</CardTitle>
               <div className="flex items-center gap-2">
+                <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create
+                </Button>
                 <span className="text-xs sm:text-sm text-muted-foreground">{data.totalTournaments} total</span>
                 <Link to="/tournaments" className="text-xs sm:text-sm text-primary hover:underline">
                   View all
@@ -523,6 +576,14 @@ function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminDa
           </CardContent>
         </Card>
       </div>
+      <CreateTournamentDialog
+        clubId={data.club.id}
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onCreated={(tournamentId) => {
+          window.location.href = `/tournaments/${tournamentId}`;
+        }}
+      />
     </section>
   );
 }
@@ -535,7 +596,17 @@ type TournamentDetailState =
   | { status: "error"; message: string };
 
 type TournamentDetail = {
-  tournament: Tournament;
+  tournament: {
+    id: string;
+    name: string;
+    startsOn: string | null;
+    format: string;
+    status: string;
+    playerCount: number;
+    matchCount: number;
+    pairingMethod?: string;
+    totalRounds?: number;
+  };
   matches: Match[];
   standings: Standing[];
 };
@@ -675,71 +746,78 @@ function TournamentDetailPage() {
             <StatCard label="Start date" value={formatDate(state.data.tournament.startsOn)} />
           </section>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg sm:text-xl">Standings</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Player</TableHead>
-                        <TableHead className="hidden sm:table-cell">W</TableHead>
-                        <TableHead className="hidden sm:table-cell">D</TableHead>
-                        <TableHead className="hidden sm:table-cell">L</TableHead>
-                        <TableHead>Points</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {state.data.standings.map((standing) => (
-                        <TableRow key={standing.playerId}>
-                          <TableCell><Link to={`/players/${standing.playerId}`} className="font-medium hover:underline text-sm sm:text-base">{standing.playerName}</Link></TableCell>
-                          <TableCell className="hidden sm:table-cell">{standing.wins}</TableCell>
-                          <TableCell className="hidden sm:table-cell">{standing.draws}</TableCell>
-                          <TableCell className="hidden sm:table-cell">{standing.losses}</TableCell>
-                          <TableCell>{standing.points.toFixed(1)}</TableCell>
+          {state.data.tournament.status === "draft" ? (
+            <TournamentRosterManager
+              tournament={state.data.tournament}
+              onUpdated={handleSaved}
+            />
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg sm:text-xl">Standings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Player</TableHead>
+                          <TableHead className="hidden sm:table-cell">W</TableHead>
+                          <TableHead className="hidden sm:table-cell">D</TableHead>
+                          <TableHead className="hidden sm:table-cell">L</TableHead>
+                          <TableHead>Points</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
+                      </TableHeader>
+                      <TableBody>
+                        {state.data.standings.map((standing) => (
+                          <TableRow key={standing.playerId}>
+                            <TableCell><Link to={`/players/${standing.playerId}`} className="font-medium hover:underline text-sm sm:text-base">{standing.playerName}</Link></TableCell>
+                            <TableCell className="hidden sm:table-cell">{standing.wins}</TableCell>
+                            <TableCell className="hidden sm:table-cell">{standing.draws}</TableCell>
+                            <TableCell className="hidden sm:table-cell">{standing.losses}</TableCell>
+                            <TableCell>{standing.points.toFixed(1)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg sm:text-xl">Matches</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Round</TableHead>
-                        <TableHead className="hidden sm:table-cell">White</TableHead>
-                        <TableHead className="hidden sm:table-cell">Black</TableHead>
-                        <TableHead>Result</TableHead>
-                        <TableHead className="hidden sm:table-cell">Date</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {state.data.matches.map((match) => (
-                        <TableRow key={match.id}>
-                          <TableCell>{match.roundNumber ?? "—"}</TableCell>
-                          <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.whitePlayerId}`} className="font-medium hover:underline">{match.whitePlayerName}</Link></TableCell>
-                          <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.blackPlayerId}`} className="font-medium hover:underline">{match.blackPlayerName}</Link></TableCell>
-                          <TableCell>{formatCompactResult(match.result)}</TableCell>
-                          <TableCell className="hidden sm:table-cell">{formatDate(match.playedOn)}</TableCell>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg sm:text-xl">Matches</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Round</TableHead>
+                          <TableHead className="hidden sm:table-cell">White</TableHead>
+                          <TableHead className="hidden sm:table-cell">Black</TableHead>
+                          <TableHead>Result</TableHead>
+                          <TableHead className="hidden sm:table-cell">Date</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                      </TableHeader>
+                      <TableBody>
+                        {state.data.matches.map((match) => (
+                          <TableRow key={match.id}>
+                            <TableCell>{match.roundNumber ?? "—"}</TableCell>
+                            <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.whitePlayerId}`} className="font-medium hover:underline">{match.whitePlayerName}</Link></TableCell>
+                            <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.blackPlayerId}`} className="font-medium hover:underline">{match.blackPlayerName}</Link></TableCell>
+                            <TableCell>{formatCompactResult(match.result)}</TableCell>
+                            <TableCell className="hidden sm:table-cell">{formatDate(match.playedOn)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </>
       )}
 

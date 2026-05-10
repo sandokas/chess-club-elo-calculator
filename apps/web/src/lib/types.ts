@@ -44,3 +44,15 @@ export type PlayerMatch = {
   glickoRatingBefore?: number;
   glickoRatingAfter?: number;
 };
+
+export type Tournament = {
+  id: string;
+  name: string;
+  startsOn: string | null;
+  status: string;
+  playerCount: number;
+  matchCount: number;
+  format?: string;
+  totalRounds?: number;
+  pairingMethod?: string;
+};

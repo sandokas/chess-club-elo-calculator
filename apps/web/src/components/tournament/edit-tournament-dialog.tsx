@@ -23,6 +23,7 @@ type Tournament = {
   name: string;
   startsOn: string | null;
   status: string;
+  pairingMethod?: string;
 };
 
 interface EditTournamentDialogProps {
@@ -36,6 +37,7 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isCompleted = tournament.status === "completed";
+  const isDraft = tournament.status === "draft";
 
   const form = useForm<TournamentEditInput>({
     resolver: zodResolver(tournamentEditSchema),
@@ -43,6 +45,7 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
       name: tournament.name,
       startsOn: tournament.startsOn ? tournament.startsOn.split('T')[0] : "",
       status: tournament.status as "draft" | "active" | "completed",
+      pairingMethod: tournament.pairingMethod as "seeded_by_rating" | "random" | undefined,
     },
   });
 
@@ -118,6 +121,28 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
               <p className="text-sm text-destructive">{form.formState.errors.status.message}</p>
             )}
           </div>
+          {!isCompleted && (
+            <div className="space-y-2">
+              <Label htmlFor="pairingMethod">Pairing Method</Label>
+              <select
+                id="pairingMethod"
+                {...form.register("pairingMethod")}
+                disabled={isSubmitting || !isDraft}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="seeded_by_rating">Seeded by Rating</option>
+                <option value="random">Random</option>
+              </select>
+              {form.formState.errors.pairingMethod && (
+                <p className="text-sm text-destructive">{form.formState.errors.pairingMethod.message}</p>
+              )}
+              {!isDraft && (
+                <p className="text-xs text-muted-foreground">
+                  Pairing method can only be changed while the tournament is in Draft status (before first round is generated).
+                </p>
+              )}
+            </div>
+          )}
           {isCompleted && (
             <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted/50 p-3 rounded-md">
               <AlertCircle className="h-4 w-4 mt-0.5" />

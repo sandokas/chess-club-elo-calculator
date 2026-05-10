@@ -85,6 +85,36 @@ pnpm db:migrate
 - `GET /tournaments/:id` - Tournament detail (matches, standings)
 - `GET /players/:id` - Player detail (match history, rating history)
 
+### Tournament Management
+
+- `POST /clubs/:clubId/tournaments` - Create tournament
+- `PUT /tournaments/:id` - Update tournament details
+- `DELETE /tournaments/:id` - Delete tournament (draft only)
+
+### Roster Management
+
+- `GET /tournaments/:id/players` - Get tournament roster
+- `POST /tournaments/:id/players` - Add existing player to tournament
+- `POST /tournaments/:id/players/new` - Create new player and add to tournament
+- `DELETE /tournaments/:id/players/:playerId` - Remove player from tournament
+- `PUT /tournaments/:id/players/:playerId/dropout` - Mark player as dropped out
+
+### Round Management
+
+- `POST /tournaments/:id/rounds` - Generate next round pairings
+- `GET /tournaments/:id/rounds` - Get tournament rounds
+- `PUT /rounds/:id/starts-on` - Update round start time
+- `PUT /rounds/:id/status` - Update round status
+- `GET /rounds/:id/matches` - Get matches for a round
+
+### Match Management
+
+- `PUT /matches/:id/result` - Update match result
+
+### Standings
+
+- `GET /tournaments/:id/standings` - Get tournament standings with Swiss tiebreakers (Buchholz, Sonneborn-Berger)
+
 See `ARCHITECTURE.md` for full architecture details.
 
 ## Migration Status

@@ -292,6 +292,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
             t.format,
             t.status,
             t.legacy_id AS "legacyId",
+            t.pairing_method AS "pairingMethod",
+            t.total_rounds AS "totalRounds",
             COUNT(DISTINCT tp.player_id)::int AS "playerCount",
             COUNT(DISTINCT m.id)::int AS "matchCount"
           FROM tournaments t
