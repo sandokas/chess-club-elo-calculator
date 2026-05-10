@@ -51,27 +51,12 @@ def compute_match(conn, p1_id, p2_id, result, match_date: str = None,
     # Elo computation
     p1 = repo.get_player(conn, p1_id)
     p2 = repo.get_player(conn, p2_id)
+    if not p1:
+        raise ValueError(f"Cannot compute match: player {p1_id} does not exist")
+    if not p2:
+        raise ValueError(f"Cannot compute match: player {p2_id} does not exist")
     r1 = p1[2]
     r2 = p2[2]
-    # Allow caller to provide games-played counts (useful for replaying matches)
-    g1 = games_played_override_p1 if games_played_override_p1 is not None else repo.games_played_for_player(conn, p1_id)
-    g2 = games_played_override_p2 if games_played_override_p2 is not None else repo.games_played_for_player(conn, p2_id)
-    k1 = elo.k_factor(g1)
-    k2 = elo.k_factor(g2)
-    new1, new2 = elo.update_elo(r1, r2, result, k1, k2)
-    out.update({
-        'p1_elo_before': r1, 'p1_elo_after': new1,
-        'p2_elo_before': r2, 'p2_elo_after': new2,
-    })
-
-    # Glicko-2 computation
-    g1 = repo.get_player_glicko(conn, p1_id)
-    g2 = repo.get_player_glicko(conn, p2_id)
-    # Elo computation
-    p1 = repo.get_player(conn, p1_id)
-    p2 = repo.get_player(conn, p2_id)
-    r1 = p1[2] if p1 else config.DEFAULT_ELO
-    r2 = p2[2] if p2 else config.DEFAULT_ELO
     # Allow caller to provide games-played counts (useful for replaying matches)
     g1 = games_played_override_p1 if games_played_override_p1 is not None else repo.games_played_for_player(conn, p1_id)
     g2 = games_played_override_p2 if games_played_override_p2 is not None else repo.games_played_for_player(conn, p2_id)
@@ -115,11 +100,9 @@ def compute_match(conn, p1_id, p2_id, result, match_date: str = None,
             days1 = 0
             days2 = 0
 
-    rd2_star = glicko2.inflate_rd(rd2, days2)
-    rd1_star = glicko2.inflate_rd(rd1, days1)
-
-    new_r1, new_rd1, new_vol1 = glicko2.glicko2_update(r1, rd1, vol1, r2, rd2_star, vol2, result, days=days1)
-    new_r2, new_rd2, new_vol2 = glicko2.glicko2_update(r2, rd2, vol2, r1, rd1_star, vol1, 1 - result, days=days2)
+    (new_r1, new_rd1, new_vol1), (new_r2, new_rd2, new_vol2) = compute_glicko_update(
+        r1, rd1, vol1, r2, rd2, vol2, result, days1, days2
+    )
 
     out.update({
         'p1_g2_before': r1, 'p1_g2_after': new_r1,
