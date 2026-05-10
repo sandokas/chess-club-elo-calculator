@@ -15,6 +15,13 @@
       "when": 1762704000000,
       "tag": "0001_collation_und_ai_ci",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778398948997,
+      "tag": "0002_early_zodiak",
+      "breakpoints": true
     }
   ]
 }

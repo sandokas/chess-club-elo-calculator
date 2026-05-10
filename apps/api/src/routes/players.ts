@@ -40,6 +40,10 @@ type UpdatePlayerBody = {
   active?: boolean;
 };
 
+type CreatePlayerBody = {
+  displayName: string;
+};
+
 /**
  * Registers player routes
  */
@@ -53,6 +57,102 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
     lastGameDate: "pr.last_game_date",
     active: "p.active"
   };
+
+  app.post<{ Params: ClubParams; Body: CreatePlayerBody }>(
+    "/clubs/:clubId/players",
+    async (request, reply) => {
+      const pool = createPool();
+      try {
+        const { displayName } = request.body;
+
+        if (!displayName || displayName.trim() === "") {
+          throw createValidationError("displayName is required");
+        }
+
+        // Check if player with same name already exists in club
+        const existingResult = await pool.query(
+          `SELECT id FROM players WHERE club_id = $1 AND display_name = $2`,
+          [request.params.clubId, displayName.trim()]
+        );
+
+        if (existingResult.rows.length > 0) {
+          throw createValidationError("Player with this name already exists in this club");
+        }
+
+        const result = await pool.query(
+          `
+            INSERT INTO players (club_id, display_name, active)
+            VALUES ($1, $2, true)
+            RETURNING
+              id,
+              display_name AS "displayName",
+              active,
+              legacy_id AS "legacyId",
+              created_at AS "createdAt",
+              club_id AS "clubId"
+          `,
+          [request.params.clubId, displayName.trim()]
+        );
+
+        // Create player ratings record
+        await pool.query(
+          `
+            INSERT INTO player_ratings (player_id, club_id, elo, glicko_rating, glicko_rd, glicko_vol, games_played)
+            VALUES ($1, $2, 1200, 1500, 350, 0.06, 0)
+          `,
+          [result.rows[0].id, request.params.clubId]
+        );
+
+        return reply.status(201).send({ player: result.rows[0] });
+      } finally {
+        await pool.end();
+      }
+    }
+  );
+
+  app.delete<{ Params: ClubParams & PlayerParams }>(
+    "/clubs/:clubId/players/:playerId",
+    async (request, reply) => {
+      const pool = createPool();
+      try {
+        // Check if player belongs to club
+        const playerResult = await pool.query(
+          `SELECT id FROM players WHERE id = $1 AND club_id = $2`,
+          [request.params.playerId, request.params.clubId]
+        );
+
+        if (playerResult.rows.length === 0) {
+          throw createNotFoundError("Player not found in this club");
+        }
+
+        // Check if player has any matches
+        const matchesResult = await pool.query(
+          `SELECT id FROM matches WHERE white_player_id = $1 OR black_player_id = $2 LIMIT 1`,
+          [request.params.playerId, request.params.playerId]
+        );
+
+        if (matchesResult.rows.length > 0) {
+          throw createValidationError("Cannot delete player with match history");
+        }
+
+        // Delete player ratings
+        await pool.query(
+          `DELETE FROM player_ratings WHERE player_id = $1`,
+          [request.params.playerId]
+        );
+
+        // Delete player
+        await pool.query(
+          `DELETE FROM players WHERE id = $1`,
+          [request.params.playerId]
+        );
+
+        return reply.status(204).send();
+      } finally {
+        await pool.end();
+      }
+    }
+  );
 
   app.get<{ Params: ClubParams; Querystring: PlayersQuerystring }>(
     "/clubs/:clubId/players",

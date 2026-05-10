@@ -20,6 +20,7 @@ export const authProviderEnum = pgEnum("auth_provider", ["password", "google"]);
 export const clubRoleEnum = pgEnum("club_role", ["owner", "admin", "organizer", "member"]);
 export const inviteStatusEnum = pgEnum("invite_status", ["pending", "accepted", "expired", "revoked"]);
 export const tournamentFormatEnum = pgEnum("tournament_format", ["manual", "swiss"]);
+export const pairingMethodEnum = pgEnum("pairing_method", ["seeded_by_rating", "random"]);
 export const tournamentStatusEnum = pgEnum("tournament_status", ["draft", "active", "completed"]);
 export const roundStatusEnum = pgEnum("round_status", ["scheduled", "active", "completed"]);
 export const matchStatusEnum = pgEnum("match_status", ["scheduled", "completed", "void"]);
@@ -189,9 +190,11 @@ export const tournaments = pgTable(
       .references(() => clubs.id, { onDelete: "cascade" }),
     // DB-level: COLLATE public.und_ai_ci (nondeterministic, case- + accent-insensitive). See 0001_collation_und_ai_ci.sql.
     name: text("name").notNull(),
-    startsOn: date("starts_on").notNull(),
+    startsOn: timestamp("starts_on", { withTimezone: true }),
     format: tournamentFormatEnum("format").notNull().default("manual"),
     status: tournamentStatusEnum("status").notNull().default("draft"),
+    totalRounds: integer("total_rounds"),
+    pairingMethod: pairingMethodEnum("pairing_method").default("seeded_by_rating"),
     legacyId: integer("legacy_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -212,6 +215,9 @@ export const tournamentPlayers = pgTable(
       .notNull()
       .references(() => players.id, { onDelete: "cascade" }),
     seed: integer("seed"),
+    droppedOutRound: integer("dropped_out_round"),
+    whiteCount: integer("white_count").default(0),
+    blackCount: integer("black_count").default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -229,6 +235,7 @@ export const rounds = pgTable(
       .references(() => tournaments.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
     status: roundStatusEnum("status").notNull().default("scheduled"),
+    startsOn: timestamp("starts_on", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
   },
