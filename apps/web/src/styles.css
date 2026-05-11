@@ -1,0 +1,330 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: rgb(var(--background));
+  --color-foreground: rgb(var(--foreground));
+  --color-card: rgb(var(--card));
+  --color-card-foreground: rgb(var(--card-foreground));
+  --color-popover: rgb(var(--popover));
+  --color-popover-foreground: rgb(var(--popover-foreground));
+  --color-primary: rgb(var(--primary));
+  --color-primary-foreground: rgb(var(--primary-foreground));
+  --color-secondary: rgb(var(--secondary));
+  --color-secondary-foreground: rgb(var(--secondary-foreground));
+  --color-muted: rgb(var(--muted));
+  --color-muted-foreground: rgb(var(--muted-foreground));
+  --color-accent: rgb(var(--accent));
+  --color-accent-foreground: rgb(var(--accent-foreground));
+  --color-destructive: rgb(var(--destructive));
+  --color-destructive-foreground: rgb(var(--destructive-foreground));
+  --color-border: rgb(var(--border));
+  --color-input: rgb(var(--input));
+  --color-ring: rgb(var(--ring));
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  :root {
+    --background: 244 247 245;
+    --foreground: 31 41 51;
+    --card: 255 255 255;
+    --card-foreground: 31 41 55;
+    --popover: 255 255 255;
+    --popover-foreground: 31 41 55;
+    --primary: 47 111 115;
+    --primary-foreground: 255 255 255;
+    --secondary: 241 245 249;
+    --secondary-foreground: 31 41 55;
+    --muted: 243 244 246;
+    --muted-foreground: 115 115 115;
+    --accent: 244 244 245;
+    --accent-foreground: 31 41 55;
+    --destructive: 239 68 68;
+    --destructive-foreground: 255 255 255;
+    --border: 229 231 235;
+    --input: 229 231 235;
+    --ring: 47 111 115;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 15 23 42;
+    --foreground: 248 250 252;
+    --card: 30 41 59;
+    --card-foreground: 248 250 252;
+    --popover: 30 41 59;
+    --popover-foreground: 248 250 252;
+    --primary-foreground: 255 255 255;
+    --secondary: 30 41 59;
+    --secondary-foreground: 248 250 252;
+    --muted: 30 41 59;
+    --muted-foreground: 148 163 184;
+    --accent: 30 41 59;
+    --accent-foreground: 248 250 252;
+    --destructive: 220 38 38;
+    --destructive-foreground: 255 255 255;
+    --border: 51 65 85;
+    --input: 51 65 85;
+    --radius: 0.5rem;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: rgb(var(--foreground));
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.status-panel {
+  width: min(720px, 100%);
+  margin: 15vh auto 0;
+}
+
+.dashboard {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+.hero {
+  margin-bottom: 28px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: rgb(var(--primary));
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.lede {
+  max-width: 60ch;
+  margin: 20px 0 28px;
+  color: rgb(var(--muted-foreground));
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.health-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  width: min(520px, 100%);
+  min-height: 84px;
+  padding: 18px;
+  border: 1px solid rgb(var(--border));
+  border-radius: 8px;
+  background: rgb(var(--card));
+  color: rgb(var(--card-foreground));
+  box-shadow: 0 14px 36px rgb(0 0 0 / 8%);
+}
+
+.health-dot {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgb(var(--muted-foreground));
+}
+
+.health-card--ok .health-dot {
+  background: #2f9e44;
+}
+
+.health-card--error .health-dot {
+  background: rgb(var(--destructive));
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card,
+.panel,
+.tournament-card {
+  border: 1px solid rgb(var(--border));
+  background: rgb(var(--card));
+  color: rgb(var(--card-foreground));
+  box-shadow: 0 14px 36px rgb(0 0 0 / 8%);
+}
+
+.stat-card {
+  padding: 20px;
+  border-radius: 12px;
+}
+
+.stat-card p {
+  margin: 0 0 8px;
+  color: rgb(var(--muted-foreground));
+  font-weight: 700;
+}
+
+.stat-card strong {
+  font-size: 2.3rem;
+  line-height: 1;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.panel {
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgb(var(--border));
+}
+
+.hero {
+  padding: 2rem 0;
+  border-bottom: 1px solid rgb(var(--border));
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.back-button {
+  background: none;
+  border: 1px solid rgb(var(--border));
+  border-radius: 0.375rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: rgb(var(--foreground));
+  transition: background-color 0.15s;
+}
+
+.back-button:hover {
+  background-color: rgb(var(--accent));
+}
+
+.panel-heading h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.panel-heading span {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.9rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 13px 20px;
+  border-bottom: 1px solid rgb(var(--border));
+  text-align: left;
+  white-space: nowrap;
+}
+
+th {
+  color: rgb(var(--muted-foreground));
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.tournament-list {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.tournament-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.tournament-card h3,
+.tournament-card p {
+  margin: 0;
+}
+
+.tournament-card p,
+.tournament-meta {
+  color: rgb(var(--muted-foreground));
+}
+
+.tournament-meta {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.health-label {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.health-card p {
+  margin: 0;
+}
+
+@media (max-width: 820px) {
+  .app-shell {
+    padding: 20px;
+  }
+
+  .stats-grid,
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tournament-card {
+    display: grid;
+  }
+
+  .tournament-meta {
+    justify-items: start;
+  }
+}

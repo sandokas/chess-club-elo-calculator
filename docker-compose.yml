@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: chess_club
+      POSTGRES_USER: chess_club
+      POSTGRES_PASSWORD: chess_club
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/18/docker
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chess_club -d chess_club"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+      start_interval: 500ms
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "node"
+    working_dir: /workspace
+    command: sh -c "pnpm --filter @chess-club/db db:migrate && pnpm --filter @chess-club/api dev"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://chess_club:chess_club@postgres:5432/chess_club
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      CI: "true"
+    ports:
+      - "4000:4000"
+    volumes:
+      - .:/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "node"
+    working_dir: /workspace
+    command: sh -c "pnpm --filter @chess-club/web dev --host 0.0.0.0"
+    environment:
+      VITE_API_BASE_URL: http://localhost:4000
+      CI: "true"
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/workspace
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

@@ -3,17 +3,30 @@ chessclub.db
 *.bak
 *.db
 
-# Python cache / junk
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.log
-
-# Virtual environments (if you use one here)
-venv/
+# Virtual environments
 .env/
-.venv/
 .vscode/
 
 chessclub.db-journal
+
+# Node / TypeScript workspace
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+.pnpm-store/
+
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env
+.env.import
+
+# IDE / Agent caches
+.agents/
+.codex/
+
+# Backups
+backups/

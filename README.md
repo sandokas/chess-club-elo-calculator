@@ -1,72 +1,121 @@
-Chess Club Manager
+# Chess Club Manager
 
-````markdown
-Chess Club Manager
+A web application for chess club management with player ratings (Elo and Glicko-2), tournaments, and match tracking.
 
-Overview
-- Small CLI app to manage players, tournaments and ratings (Elo and Glicko‑2).
+## Tech Stack
 
-Quick start
+- **Backend**: Node.js 25+, TypeScript, Fastify
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui
+- **Database**: PostgreSQL with Drizzle ORM
+- **Package Manager**: pnpm (workspace monorepo)
+- **Runtime**: Docker Compose
 
-- Install editable (recommended) and use the console script:
+## Quick Start
 
-```bash
-pip install -e .
-chess-club
-```
+### Prerequisites
 
-- Or run without installing (from the repository root):
+- Node.js 25+
+- pnpm
+- Docker and Docker Compose
 
-```bash
-PYTHONPATH=src python -m chess_club
-```
-
-- Quick import check:
+### Installation
 
 ```bash
-python -c "import chess_club; print('module loads OK')"
+# Install dependencies
+pnpm install
 ```
 
-Files
-- `elo.py` — Elo calculation helpers
-- `glicko2.py` — Glicko‑2 helpers
-- `ratings.py` — rating orchestration (Elo/Glicko)
-- `db.py` — sqlite connection and schema initialization
-- `repo.py` — database query wrappers
-- `tournament.py` — tournament logic and helpers
-- `ranking.py` — leaderboard and recompute logic
-- `cli.py` / `__main__.py` — CLI entry (console script `chess-club` / `python -m chess_club`)
-- `config.py` — runtime loader that reads JSON configs in `configs/`
-
-Usage notes
-- Configuration is now split between JSON files under the repository-level `configs/` directory:
-	- `configs/business_config.json` — business-facing settings (rating system, thresholds, rating defaults).
-	- `configs/operational_config.json` — operational/runtime settings (DB path, etc.).
-
-- The module `src/chess_club/config.py` looks for configuration in this order:
-	1. Directory set by `CHESS_CLUB_CONFIG_DIR` environment variable
-	2. Repository-level `configs/` directory
-	3. Package fallback `src/chess_club/configs/`
-
-	It exposes the same top-level names used elsewhere (e.g. `RATING_SYSTEM`, `DB_PATH`, `G2_DEFAULT_RATING`).
-	You can call `chess_club.config.reload()` at runtime to pick up changes to the JSON files.
-
-- ELO-related settings in the business config:
-	- `ELO_K_THRESHOLDS` and `ELO_K_VALUES` — control `k_factor()` behavior (defaults: thresholds [20,50], values [40,20,10]).
-	- `ELO_DECIMALS` — number of decimals used when rounding Elo updates (default 2).
-
-- Standard Elo constants (base=10 and divisor=400) remain in the code as the canonical chess formula.
-
--- Default DB path is `chessclub.db`. Change `DB_PATH` in `configs/operational_config.json` to use a different file or location.
-
-Testing
-- Run the test suite with:
+### Running the Application
 
 ```bash
-pytest
+# Start all services (PostgreSQL, API, Web)
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop services
+docker compose down
 ```
 
-Contributing / Development
-- Work from the project root. When running directly, ensure Python can import `src` (via `PYTHONPATH=src` or by installing editable with `pip install -e .`).
+The application will be available at:
+- **API**: http://localhost:4000
+- **Web**: http://localhost:5173
 
-````
+## Project Structure
+
+```
+chess-club/
+├── apps/
+│   ├── api/          # Fastify REST API
+│   └── web/          # React web application
+├── packages/
+│   ├── config/       # Shared environment validation
+│   ├── core/         # Rating logic (Elo, Glicko-2)
+│   └── db/           # Database schema and migrations
+```
+
+## Development Commands
+
+```bash
+# Type checking
+pnpm typecheck
+
+# Run tests
+pnpm test
+
+# Generate database migrations (after schema changes)
+pnpm db:generate
+
+# Apply database migrations (auto-runs on docker compose up)
+pnpm db:migrate
+```
+
+## API Endpoints
+
+- `GET /health` - Health check
+- `GET /health/db` - Database health check
+- `GET /clubs` - List clubs
+- `GET /clubs/:clubId/players` - List players (with filtering, sorting, pagination)
+- `GET /clubs/:clubId/tournaments` - List tournaments
+- `GET /clubs/:clubId/leaderboard` - Club leaderboard
+- `GET /tournaments/:id` - Tournament detail (matches, standings)
+- `GET /players/:id` - Player detail (match history, rating history)
+
+### Tournament Management
+
+- `POST /clubs/:clubId/tournaments` - Create tournament
+- `PUT /tournaments/:id` - Update tournament details
+- `DELETE /tournaments/:id` - Delete tournament (draft only)
+
+### Roster Management
+
+- `GET /tournaments/:id/players` - Get tournament roster
+- `POST /tournaments/:id/players` - Add existing player to tournament
+- `POST /tournaments/:id/players/new` - Create new player and add to tournament
+- `DELETE /tournaments/:id/players/:playerId` - Remove player from tournament
+- `PUT /tournaments/:id/players/:playerId/dropout` - Mark player as dropped out
+
+### Round Management
+
+- `POST /tournaments/:id/rounds` - Generate next round pairings
+- `GET /tournaments/:id/rounds` - Get tournament rounds
+- `PUT /rounds/:id/starts-on` - Update round start time
+- `PUT /rounds/:id/status` - Update round status
+- `GET /rounds/:id/matches` - Get matches for a round
+
+### Match Management
+
+- `PUT /matches/:id/result` - Update match result
+
+### Standings
+
+- `GET /tournaments/:id/standings` - Get tournament standings with Swiss tiebreakers (Buchholz, Sonneborn-Berger)
+
+See `ARCHITECTURE.md` for full architecture details.
+
+## Configuration
+
+- Runtime configuration: `.env` (see `.env.example`)
+- Import configuration: `.env.import` (see `.env.import.example`)
+- Business configuration: `configs/business_config.json`

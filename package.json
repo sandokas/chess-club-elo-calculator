@@ -1,0 +1,21 @@
+{
+  "name": "chess-club-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.0.8",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @chess-club/api --filter @chess-club/web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @chess-club/db db:generate",
+    "db:migrate": "pnpm --filter @chess-club/db db:migrate",
+    "import:sqlite": "pnpm --filter @chess-club/db import:sqlite",
+    "docker:up": "docker compose up --build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}
