@@ -5,6 +5,10 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, { signal });
   if (!response.ok) {
+    if (response.status === 404) {
+      const error = await response.json();
+      throw new Error(error.message || "Not found");
+    }
     throw new Error(`API responded with ${response.status} for ${path}`);
   }
   return response.json() as Promise<T>;
@@ -25,12 +29,15 @@ export async function loadPlayersList(
   gamesPlayedMin: string,
   gamesPlayedMax: string,
   lastGameDateAfter: string,
-  lastGameDateBefore: string
+  lastGameDateBefore: string,
+  club?: { id: string }
 ): Promise<PlayersListData> {
-  const clubsPayload = await fetchJson<{ clubs: { id: string }[] }>("/clubs", signal);
-  const club = clubsPayload.clubs[0];
   if (!club) {
-    throw new Error("No clubs found in the database.");
+    const clubsPayload = await fetchJson<{ clubs: { id: string }[] }>("/clubs", signal);
+    club = clubsPayload.clubs[0];
+    if (!club) {
+      throw new Error("No clubs found in the database.");
+    }
   }
 
   const params = new URLSearchParams({

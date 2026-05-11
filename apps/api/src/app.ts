@@ -276,7 +276,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     }
   });
 
-  app.get<{ Params: ClubParams; Querystring: { page?: string; limit?: string; sortBy?: string; sortOrder?: string; name?: string; status?: string } }>("/clubs/:clubId/tournaments", async (request) => {
+  app.get<{ Params: ClubParams; Querystring: { page?: string; limit?: string; sortBy?: string; sortOrder?: string; name?: string; status?: string } }>("/clubs/:clubId/tournaments", async (request, reply) => {
     const pool = createPool();
     try {
       const page = Math.max(1, parseInt(request.query.page || '1', 10));
@@ -321,6 +321,14 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
       );
       const total = parseInt(countResult.rows[0].total, 10);
       const totalPages = Math.ceil(total / limit);
+
+      if (page > totalPages && totalPages > 0) {
+        return reply.status(404).send({
+          error: "NotFound",
+          message: "Page exceeds total pages"
+        });
+      }
+
       const offset = (page - 1) * limit;
 
       params.push(limit, offset);

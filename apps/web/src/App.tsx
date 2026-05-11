@@ -23,6 +23,7 @@ import { Pencil, Plus, Settings, RefreshCw } from "lucide-react";
 import { PlayersListPage } from "./pages/players-list.js";
 import { PlayerDetailPage } from "./pages/player-detail.js";
 import { formatRating, formatDate, formatCompactResult } from "./lib/formatters.js";
+import { useClub } from "./contexts/club-context.js";
 
 type LoadState =
   | { status: "loading" }
@@ -118,11 +119,18 @@ export function App() {
 function AdminOverviewPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [activeOnly, setActiveOnly] = useState(true);
+  const { club, isLoading: clubLoading, error: clubError } = useClub();
 
   useEffect(() => {
+    if (clubLoading || !club) return;
+    if (clubError) {
+      setState({ status: "error", message: clubError });
+      return;
+    }
+
     const controller = new AbortController();
 
-    loadAdminData(controller.signal, activeOnly)
+    loadAdminData(controller.signal, activeOnly, club)
       .then((data) => {
         setState({ status: "ok", data });
       })
@@ -137,7 +145,7 @@ function AdminOverviewPage() {
       });
 
     return () => controller.abort();
-  }, [activeOnly]);
+  }, [activeOnly, club, clubLoading, clubError]);
 
   return (
     <>
@@ -152,7 +160,7 @@ function TournamentsListPage() {
   const [state, setState] = useState<TournamentsListState>({ status: "loading" });
   const [searchParams, setSearchParams] = useSearchParams();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [clubId, setClubId] = useState<string | null>(null);
+  const { club, isLoading: clubLoading, error: clubError } = useClub();
 
   const page = parseInt(searchParams.get("page") || "1", 10);
   const limit = parseInt(searchParams.get("limit") || "20", 10);
@@ -163,23 +171,25 @@ function TournamentsListPage() {
   const status = searchParams.get("status") || "";
 
   useEffect(() => {
+    if (clubLoading || !club) return;
+    if (clubError) {
+      setState({ status: "error", message: clubError });
+      return;
+    }
+
     const controller = new AbortController();
 
-    loadTournamentsList(controller.signal, page, limit, sortBy, sortOrder, name, status)
+    loadTournamentsList(controller.signal, page, limit, sortBy, sortOrder, name, status, club)
       .then((data) => {
         setState({ status: "ok", data });
-        // Get clubId from the first club
-        fetch(`${apiBaseUrl}/clubs`, { signal: controller.signal })
-          .then(res => res.json())
-          .then((clubsData: { clubs: { id: string }[] }) => {
-            if (clubsData.clubs.length > 0 && clubsData.clubs[0]) {
-              setClubId(clubsData.clubs[0].id);
-            }
-          })
-          .catch(() => {});
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        if (error instanceof Error && error.message === "Page exceeds total pages") {
+          // Redirect to first page
+          setSearchParams({ page: "1", sortBy, sortOrder, limit: limit.toString(), name, status });
           return;
         }
         setState({
@@ -189,7 +199,7 @@ function TournamentsListPage() {
       });
 
     return () => controller.abort();
-  }, [page, limit, sortBy, sortOrder, name, status]);
+  }, [page, limit, sortBy, sortOrder, name, status, club, clubLoading, clubError]);
 
   const handleSort = (column: string) => {
     const newSortOrder = sortBy === column ? (sortOrder === "asc" ? "desc" : "asc") : "desc";
@@ -223,7 +233,7 @@ function TournamentsListPage() {
         </div>
         <div className="flex items-center gap-2">
           <h1 id="tournaments-title" className="text-2xl sm:text-3xl font-bold">All Tournaments</h1>
-          {clubId && (
+          {club && (
             <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Create
@@ -240,7 +250,7 @@ function TournamentsListPage() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <p className="text-muted-foreground text-lg mb-4">No tournaments yet</p>
-                {clubId && (
+                {club && (
                   <Button onClick={() => setCreateDialogOpen(true)}>
                     <Plus className="h-4 w-4 mr-2" />
                     Create your first tournament
@@ -386,9 +396,9 @@ function TournamentsListPage() {
           )}
         </>
       )}
-      {clubId && (
+      {club && (
         <CreateTournamentDialog
-          clubId={clubId}
+          clubId={club.id}
           open={createDialogOpen}
           onOpenChange={setCreateDialogOpen}
           onCreated={(tournamentId) => {
@@ -401,11 +411,13 @@ function TournamentsListPage() {
   );
 }
 
-async function loadAdminData(signal: AbortSignal, activeOnly: boolean = true): Promise<AdminData> {
-  const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
-  const club = clubsPayload.clubs[0];
+async function loadAdminData(signal: AbortSignal, activeOnly: boolean = true, club?: Club): Promise<AdminData> {
   if (!club) {
-    throw new Error("No clubs found in the database.");
+    const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
+    club = clubsPayload.clubs[0];
+    if (!club) {
+      throw new Error("No clubs found in the database.");
+    }
   }
 
   const [playersPayload, tournamentsPayload, leaderboardPayload, tournamentsCountPayload] = await Promise.all([
@@ -425,11 +437,13 @@ async function loadAdminData(signal: AbortSignal, activeOnly: boolean = true): P
 }
 
 
-async function loadTournamentsList(signal: AbortSignal, page: number, limit: number, sortBy: string, sortOrder: string, name: string, status: string): Promise<TournamentsListData> {
-  const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
-  const club = clubsPayload.clubs[0];
+async function loadTournamentsList(signal: AbortSignal, page: number, limit: number, sortBy: string, sortOrder: string, name: string, status: string, club?: Club): Promise<TournamentsListData> {
   if (!club) {
-    throw new Error("No clubs found in the database.");
+    const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
+    club = clubsPayload.clubs[0];
+    if (!club) {
+      throw new Error("No clubs found in the database.");
+    }
   }
 
   const params = new URLSearchParams({

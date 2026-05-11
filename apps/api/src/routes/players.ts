@@ -18,6 +18,11 @@ type PlayerParams = {
   id: string;
 };
 
+type ClubPlayerParams = {
+  clubId: string;
+  playerId: string;
+};
+
 type PlayersQuerystring = {
   page?: string;
   limit?: string;
@@ -110,7 +115,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
     }
   );
 
-  app.delete<{ Params: ClubParams & PlayerParams }>(
+  app.delete<{ Params: ClubPlayerParams }>(
     "/clubs/:clubId/players/:playerId",
     async (request, reply) => {
       const pool = createPool();
@@ -156,7 +161,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
 
   app.get<{ Params: ClubParams; Querystring: PlayersQuerystring }>(
     "/clubs/:clubId/players",
-    async (request) => {
+    async (request, reply) => {
       const pool = createPool();
       try {
         const { page, limit } = parsePaginationParams(request.query);
@@ -245,6 +250,14 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
         );
         const total = parseInt(countResult.rows[0].total, 10);
         const totalPages = Math.ceil(total / limit);
+
+        if (page > totalPages && totalPages > 0) {
+          return reply.status(404).send({
+            error: "NotFound",
+            message: "Page exceeds total pages"
+          });
+        }
+
         const offset = (page - 1) * limit;
 
         params.push(limit, offset);

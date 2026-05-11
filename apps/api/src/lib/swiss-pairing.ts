@@ -134,7 +134,9 @@ function generateFirstRoundPairings(
     for (let i = 0; i < sortedPlayers.length / 2; i++) {
       const whitePlayer = sortedPlayers[i];
       const blackPlayer = sortedPlayers[sortedPlayers.length - 1 - i];
-      
+
+      if (!whitePlayer || !blackPlayer) break;
+
       matches.push({
         whitePlayerId: whitePlayer.id,
         blackPlayerId: blackPlayer.id,
@@ -144,11 +146,16 @@ function generateFirstRoundPairings(
   } else {
     // Random pairings
     const shuffled = [...players].sort(() => Math.random() - 0.5);
-    
+
     for (let i = 0; i < shuffled.length / 2; i++) {
+      const whitePlayer = shuffled[i * 2];
+      const blackPlayer = shuffled[i * 2 + 1];
+
+      if (!whitePlayer || !blackPlayer) break;
+
       matches.push({
-        whitePlayerId: shuffled[i * 2].id,
-        blackPlayerId: shuffled[i * 2 + 1].id,
+        whitePlayerId: whitePlayer.id,
+        blackPlayerId: blackPlayer.id,
         boardNumber: i + 1,
       });
     }
@@ -203,6 +210,8 @@ async function generateSubsequentRoundPairings(
       const player1 = groupPlayers[i];
       const player2 = groupPlayers[i + 1];
 
+      if (!player1 || !player2) continue;
+
       if (pairedPlayers.has(player1.id) || pairedPlayers.has(player2.id)) {
         continue;
       }
@@ -251,6 +260,8 @@ async function generateSubsequentRoundPairings(
   for (let i = 0; i < unpairedPlayers.length / 2; i++) {
     const player1 = unpairedPlayers[i];
     const player2 = unpairedPlayers[unpairedPlayers.length - 1 - i];
+
+    if (!player1 || !player2) continue;
 
     if (pairedPlayers.has(player1.id) || pairedPlayers.has(player2.id)) {
       continue;
