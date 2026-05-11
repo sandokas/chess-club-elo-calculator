@@ -653,6 +653,22 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         });
       }
 
+      // Prevent completing tournament if matches have no results
+      if (status === "completed") {
+        const incompleteMatchesResult = await pool.query(
+          `SELECT COUNT(*) AS count FROM matches WHERE tournament_id = $1 AND (status != 'completed' OR result IS NULL)`,
+          [request.params.id]
+        );
+        
+        const incompleteCount = parseInt(incompleteMatchesResult.rows[0].count, 10);
+        if (incompleteCount > 0) {
+          return reply.status(400).send({
+            error: "ValidationError",
+            message: `Cannot complete tournament: ${incompleteCount} match(es) do not have results set`
+          });
+        }
+      }
+
       const updates: string[] = [];
       const values: any[] = [];
       let paramIndex = 1;
@@ -1225,9 +1241,12 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         });
       }
 
-      // Get match details
+      // Get match details with tournament status
       const matchResult = await pool.query(
-        `SELECT id, tournament_id, white_player_id, black_player_id, club_id, status FROM matches WHERE id = $1`,
+        `SELECT m.id, m.tournament_id, m.white_player_id, m.black_player_id, m.club_id, m.status, t.status AS "tournamentStatus"
+         FROM matches m
+         JOIN tournaments t ON t.id = m.tournament_id
+         WHERE m.id = $1`,
         [request.params.id]
       );
 
@@ -1244,6 +1263,13 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         return reply.status(400).send({
           error: "ValidationError",
           message: "Match already completed"
+        });
+      }
+
+      if (match.tournamentStatus === "completed") {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "Cannot update match result for completed tournament"
         });
       }
 
