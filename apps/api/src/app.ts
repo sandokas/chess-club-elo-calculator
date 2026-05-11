@@ -760,11 +760,31 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       const tournament = tournamentResult.rows[0];
 
+      let round1Id: string | null = null;
+
       if (tournament.status !== "draft") {
-        return reply.status(400).send({
-          error: "ValidationError",
-          message: "Can only add players to tournaments in draft status"
-        });
+        // Allow adding players during first round
+        if (tournament.status === "active") {
+          // Check if round 1 exists and is incomplete
+          const round1Result = await pool.query(
+            `SELECT id, status FROM rounds WHERE tournament_id = $1 AND number = 1`,
+            [request.params.id]
+          );
+
+          if (round1Result.rows.length === 0 || round1Result.rows[0].status === "completed") {
+            return reply.status(400).send({
+              error: "ValidationError",
+              message: "Can only add players during first round or in draft status"
+            });
+          }
+          round1Id = round1Result.rows[0].id;
+          // Continue - allow adding player during first round
+        } else {
+          return reply.status(400).send({
+            error: "ValidationError",
+            message: "Can only add players to tournaments in draft status"
+          });
+        }
       }
 
       // Check player exists and belongs to the same club
@@ -812,6 +832,41 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id, playerId]
       );
 
+      // If adding during first round, handle pairing
+      if (round1Id !== null) {
+        // Find a bye (player with no match in round 1)
+        const byeResult = await pool.query(
+          `
+            SELECT tp.player_id
+            FROM tournament_players tp
+            LEFT JOIN matches m ON m.white_player_id = tp.player_id OR m.black_player_id = tp.player_id
+            WHERE tp.tournament_id = $1
+              AND m.round_id = $2
+              AND m.id IS NULL
+            LIMIT 1
+          `,
+          [request.params.id, round1Id]
+        );
+
+        if (byeResult.rows.length > 0) {
+          // Create match between new player and bye player
+          const maxBoardResult = await pool.query(
+            `SELECT COALESCE(MAX(board_number), 0) AS max_board FROM matches WHERE round_id = $1`,
+            [round1Id]
+          );
+          const nextBoardNumber = maxBoardResult.rows[0].max_board + 1;
+
+          await pool.query(
+            `
+              INSERT INTO matches (club_id, tournament_id, round_id, white_player_id, black_player_id, board_number, status, played_on)
+              VALUES ($1, $2, $3, $4, $5, $6, 'scheduled', NOW())
+            `,
+            [tournament.club_id, request.params.id, round1Id, byeResult.rows[0].player_id, playerId, nextBoardNumber]
+          );
+        }
+        // If no bye, new player gets a bye (no match created)
+      }
+
       return reply.status(201).send({ tournamentPlayer: result.rows[0] });
     } finally {
       await pool.end();
@@ -845,11 +900,31 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       const tournament = tournamentResult.rows[0];
 
+      let round1Id: string | null = null;
+
       if (tournament.status !== "draft") {
-        return reply.status(400).send({
-          error: "ValidationError",
-          message: "Can only add players to tournaments in draft status"
-        });
+        // Allow adding players during first round
+        if (tournament.status === "active") {
+          // Check if round 1 exists and is incomplete
+          const round1Result = await pool.query(
+            `SELECT id, status FROM rounds WHERE tournament_id = $1 AND number = 1`,
+            [request.params.id]
+          );
+
+          if (round1Result.rows.length === 0 || round1Result.rows[0].status === "completed") {
+            return reply.status(400).send({
+              error: "ValidationError",
+              message: "Can only add players during first round or in draft status"
+            });
+          }
+          round1Id = round1Result.rows[0].id;
+          // Continue - allow adding player during first round
+        } else {
+          return reply.status(400).send({
+            error: "ValidationError",
+            message: "Can only add players to tournaments in draft status"
+          });
+        }
       }
 
       // Create player
@@ -882,6 +957,41 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         `,
         [request.params.id, playerId]
       );
+
+      // If adding during first round, handle pairing
+      if (round1Id !== null) {
+        // Find a bye (player with no match in round 1)
+        const byeResult = await pool.query(
+          `
+            SELECT tp.player_id
+            FROM tournament_players tp
+            LEFT JOIN matches m ON m.white_player_id = tp.player_id OR m.black_player_id = tp.player_id
+            WHERE tp.tournament_id = $1
+              AND m.round_id = $2
+              AND m.id IS NULL
+            LIMIT 1
+          `,
+          [request.params.id, round1Id]
+        );
+
+        if (byeResult.rows.length > 0) {
+          // Create match between new player and bye player
+          const maxBoardResult = await pool.query(
+            `SELECT COALESCE(MAX(board_number), 0) AS max_board FROM matches WHERE round_id = $1`,
+            [round1Id]
+          );
+          const nextBoardNumber = maxBoardResult.rows[0].max_board + 1;
+
+          await pool.query(
+            `
+              INSERT INTO matches (club_id, tournament_id, round_id, white_player_id, black_player_id, board_number, status, played_on)
+              VALUES ($1, $2, $3, $4, $5, $6, 'scheduled', NOW())
+            `,
+            [tournament.club_id, request.params.id, round1Id, byeResult.rows[0].player_id, playerId, nextBoardNumber]
+          );
+        }
+        // If no bye, new player gets a bye (no match created)
+      }
 
       return reply.status(201).send({ tournamentPlayer: tournamentPlayerResult.rows[0] });
     } finally {
@@ -1228,6 +1338,40 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     }
   });
 
+  app.delete<{ Params: { id: string } }>("/rounds/:id", async (request, reply) => {
+    const pool = createPool();
+    try {
+      // Check if round exists
+      const roundResult = await pool.query(
+        `SELECT id FROM rounds WHERE id = $1`,
+        [request.params.id]
+      );
+
+      if (roundResult.rows.length === 0) {
+        return reply.status(404).send({
+          error: "NotFound",
+          message: "Round not found"
+        });
+      }
+
+      // Delete all matches associated with the round
+      await pool.query(
+        `DELETE FROM matches WHERE round_id = $1`,
+        [request.params.id]
+      );
+
+      // Delete the round
+      await pool.query(
+        `DELETE FROM rounds WHERE id = $1`,
+        [request.params.id]
+      );
+
+      return reply.status(204).send();
+    } finally {
+      await pool.end();
+    }
+  });
+
   // Match result endpoints
   app.put<{ Params: { id: string }; Body: { result: number } }>("/matches/:id/result", async (request, reply) => {
     const pool = createPool();
@@ -1259,13 +1403,6 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       const match = matchResult.rows[0];
 
-      if (match.status === "completed") {
-        return reply.status(400).send({
-          error: "ValidationError",
-          message: "Match already completed"
-        });
-      }
-
       if (match.tournamentStatus === "completed") {
         return reply.status(400).send({
           error: "ValidationError",
@@ -1283,6 +1420,260 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         `,
         [result, request.params.id]
       );
+
+      // Recompute ratings for the club
+      // First, check if the match had previous rating audit data
+      const oldMatchAuditResult = await pool.query(
+        `SELECT white_elo_before, black_elo_before FROM matches WHERE id = $1`,
+        [request.params.id]
+      );
+
+      const oldMatchAudit = oldMatchAuditResult.rows[0];
+      
+      // If the match had previous ratings, revert them and recompute from this match onward
+      if (oldMatchAudit && oldMatchAudit.white_elo_before !== null) {
+        // Revert the two players' ratings to their "before" values
+        await pool.query(
+          `
+            UPDATE player_ratings pr
+            SET
+              elo = CASE
+                WHEN pr.player_id = $1 THEN $2
+                WHEN pr.player_id = $3 THEN $4
+                ELSE pr.elo
+              END,
+              updated_at = NOW()
+            WHERE pr.player_id IN ($1, $3)
+          `,
+          [match.white_player_id, oldMatchAudit.white_elo_before, match.black_player_id, oldMatchAudit.black_elo_before]
+        );
+
+        // Fetch all completed matches for the club from the updated match onward
+        const matchesResult = await pool.query(
+          `
+            SELECT
+              m.id,
+              m.white_player_id AS "whitePlayerId",
+              m.black_player_id AS "blackPlayerId",
+              m.result,
+              m.played_on AS "playedOn"
+            FROM matches m
+            WHERE m.club_id = $1
+              AND m.status = 'completed'
+              AND m.result IS NOT NULL
+              AND m.played_on >= (SELECT played_on FROM matches WHERE id = $2)
+            ORDER BY m.played_on ASC, m.id ASC
+          `,
+          [match.club_id, request.params.id]
+        );
+
+        if (matchesResult.rows.length > 0) {
+          const playersResult = await pool.query(
+            `SELECT id FROM players WHERE club_id = $1`,
+            [match.club_id]
+          );
+
+          if (playersResult.rows.length > 0) {
+            const playerIds = playersResult.rows.map(row => row.id);
+            const matches: MatchInput[] = matchesResult.rows.map(row => ({
+              id: row.id,
+              whitePlayerId: row.whitePlayerId,
+              blackPlayerId: row.blackPlayerId,
+              result: row.result,
+              date: row.playedOn
+            }));
+
+            const { profiles, audits } = recomputeRatings(playerIds, matches);
+
+            // Update player ratings in the database
+            for (const [playerId, profile] of profiles.entries()) {
+              await pool.query(
+                `
+                  UPDATE player_ratings
+                  SET
+                    elo = $1,
+                    glicko_rating = $2,
+                    glicko_rd = $3,
+                    glicko_vol = $4,
+                    games_played = $5,
+                    last_game_date = $6,
+                    updated_at = NOW()
+                  WHERE player_id = $7
+                `,
+                [
+                  profile.elo,
+                  profile.glicko.rating,
+                  profile.glicko.rd,
+                  profile.glicko.vol,
+                  profile.gamesPlayed,
+                  profile.lastGameDate,
+                  playerId
+                ]
+              );
+            }
+
+            // Update match rating audits
+            for (const audit of audits) {
+              await pool.query(
+                `
+                  UPDATE matches
+                  SET
+                    white_elo_before = $1,
+                    white_elo_after = $2,
+                    black_elo_before = $3,
+                    black_elo_after = $4,
+                    white_glicko_rating_before = $5,
+                    white_glicko_rating_after = $6,
+                    white_glicko_rd_before = $7,
+                    white_glicko_rd_after = $8,
+                    white_glicko_vol_before = $9,
+                    white_glicko_vol_after = $10,
+                    black_glicko_rating_before = $11,
+                    black_glicko_rating_after = $12,
+                    black_glicko_rd_before = $13,
+                    black_glicko_rd_after = $14,
+                    black_glicko_vol_before = $15,
+                    black_glicko_vol_after = $16,
+                    updated_at = NOW()
+                  WHERE id = $17
+                `,
+                [
+                  audit.whiteEloBefore,
+                  audit.whiteEloAfter,
+                  audit.blackEloBefore,
+                  audit.blackEloAfter,
+                  audit.whiteGlickoBefore.rating,
+                  audit.whiteGlickoAfter.rating,
+                  audit.whiteGlickoBefore.rd,
+                  audit.whiteGlickoAfter.rd,
+                  audit.whiteGlickoBefore.vol,
+                  audit.whiteGlickoAfter.vol,
+                  audit.blackGlickoBefore.rating,
+                  audit.blackGlickoAfter.rating,
+                  audit.blackGlickoBefore.rd,
+                  audit.blackGlickoAfter.rd,
+                  audit.blackGlickoBefore.vol,
+                  audit.blackGlickoAfter.vol,
+                  audit.matchId
+                ]
+              );
+            }
+          }
+        }
+      } else {
+        // First time setting result - do full recompute for the club
+        const playersResult = await pool.query(
+          `SELECT id FROM players WHERE club_id = $1`,
+          [match.club_id]
+        );
+
+        if (playersResult.rows.length > 0) {
+          const playerIds = playersResult.rows.map(row => row.id);
+
+          const matchesResult = await pool.query(
+            `
+              SELECT
+                m.id,
+                m.white_player_id AS "whitePlayerId",
+                m.black_player_id AS "blackPlayerId",
+                m.result,
+                m.played_on AS "playedOn"
+              FROM matches m
+              WHERE m.club_id = $1
+                AND m.status = 'completed'
+                AND m.result IS NOT NULL
+              ORDER BY m.played_on ASC, m.id ASC
+            `,
+            [match.club_id]
+          );
+
+          if (matchesResult.rows.length > 0) {
+            const matches: MatchInput[] = matchesResult.rows.map(row => ({
+              id: row.id,
+              whitePlayerId: row.whitePlayerId,
+              blackPlayerId: row.blackPlayerId,
+              result: row.result,
+              date: row.playedOn
+            }));
+
+            const { profiles, audits } = recomputeRatings(playerIds, matches);
+
+            // Update player ratings in the database
+            for (const [playerId, profile] of profiles.entries()) {
+              await pool.query(
+                `
+                  UPDATE player_ratings
+                  SET
+                    elo = $1,
+                    glicko_rating = $2,
+                    glicko_rd = $3,
+                    glicko_vol = $4,
+                    games_played = $5,
+                    last_game_date = $6,
+                    updated_at = NOW()
+                  WHERE player_id = $7
+                `,
+                [
+                  profile.elo,
+                  profile.glicko.rating,
+                  profile.glicko.rd,
+                  profile.glicko.vol,
+                  profile.gamesPlayed,
+                  profile.lastGameDate,
+                  playerId
+                ]
+              );
+            }
+
+            // Update match rating audits
+            for (const audit of audits) {
+              await pool.query(
+                `
+                  UPDATE matches
+                  SET
+                    white_elo_before = $1,
+                    white_elo_after = $2,
+                    black_elo_before = $3,
+                    black_elo_after = $4,
+                    white_glicko_rating_before = $5,
+                    white_glicko_rating_after = $6,
+                    white_glicko_rd_before = $7,
+                    white_glicko_rd_after = $8,
+                    white_glicko_vol_before = $9,
+                    white_glicko_vol_after = $10,
+                    black_glicko_rating_before = $11,
+                    black_glicko_rating_after = $12,
+                    black_glicko_rd_before = $13,
+                    black_glicko_rd_after = $14,
+                    black_glicko_vol_before = $15,
+                    black_glicko_vol_after = $16,
+                    updated_at = NOW()
+                  WHERE id = $17
+                `,
+                [
+                  audit.whiteEloBefore,
+                  audit.whiteEloAfter,
+                  audit.blackEloBefore,
+                  audit.blackEloAfter,
+                  audit.whiteGlickoBefore.rating,
+                  audit.whiteGlickoAfter.rating,
+                  audit.whiteGlickoBefore.rd,
+                  audit.whiteGlickoAfter.rd,
+                  audit.whiteGlickoBefore.vol,
+                  audit.whiteGlickoAfter.vol,
+                  audit.blackGlickoBefore.rating,
+                  audit.blackGlickoAfter.rating,
+                  audit.blackGlickoBefore.rd,
+                  audit.blackGlickoAfter.rd,
+                  audit.blackGlickoBefore.vol,
+                  audit.blackGlickoAfter.vol,
+                  audit.matchId
+                ]
+              );
+            }
+          }
+        }
+      }
 
       return reply.status(200).send({ match: updatedMatchResult.rows[0] });
     } finally {
