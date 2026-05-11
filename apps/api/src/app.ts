@@ -55,6 +55,62 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     }
   });
 
+  app.post<{ Body: { name: string; description?: string; city?: string; country?: string } }>("/clubs", async (request, reply) => {
+    const pool = createPool();
+    try {
+      const { name, description, city, country } = request.body;
+
+      if (!name || name.trim() === "") {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "name is required"
+        });
+      }
+
+      const trimmedName = name.trim();
+      const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+
+      if (slug === "") {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "name must contain valid characters"
+        });
+      }
+
+      // Check if slug already exists
+      const existingClub = await pool.query(
+        `SELECT id FROM clubs WHERE slug = $1`,
+        [slug]
+      );
+
+      if (existingClub.rows.length > 0) {
+        return reply.status(409).send({
+          error: "ConflictError",
+          message: "A club with this slug already exists"
+        });
+      }
+
+      const result = await pool.query(
+        `
+          INSERT INTO clubs (name, slug, description, city, country)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, name, slug, description, city, country, created_at AS "createdAt", updated_at AS "updatedAt"
+        `,
+        [
+          trimmedName,
+          slug,
+          description?.trim() || null,
+          city?.trim() || null,
+          country?.trim() || null
+        ]
+      );
+
+      return reply.status(201).send({ club: result.rows[0] });
+    } finally {
+      await pool.end();
+    }
+  });
+
   app.patch<{ Params: ClubParams; Body: { name?: string; description?: string; city?: string; country?: string } }>("/clubs/:clubId", async (request, reply) => {
     const pool = createPool();
     try {

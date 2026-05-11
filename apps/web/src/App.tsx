@@ -18,6 +18,7 @@ import { CreateTournamentDialog } from "./components/tournament/create-tournamen
 import { TournamentRosterManager } from "./components/tournament/tournament-roster-manager.js";
 import { EditPlayerDialog } from "./components/player/edit-player-dialog.js";
 import { EditClubDialog } from "./components/club/edit-club-dialog.js";
+import { CreateClubDialog } from "./components/club/create-club-dialog.js";
 import { RecomputeRatingsDialog } from "./components/club/recompute-ratings-dialog.js";
 import { Pencil, Plus, Settings, RefreshCw } from "lucide-react";
 import { PlayersListPage } from "./pages/players-list.js";
@@ -475,6 +476,7 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
 function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminData; activeOnly: boolean; onActiveOnlyChange: (value: boolean) => void }) {
   const topPlayers = data.leaderboard.slice(0, 10);
   const recentTournaments = data.tournaments.slice(0, 6);
+  const { createClubDialogOpen, setCreateClubDialogOpen } = useClub();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editClubDialogOpen, setEditClubDialogOpen] = useState(false);
   const [recomputeRatingsDialogOpen, setRecomputeRatingsDialogOpen] = useState(false);
@@ -637,6 +639,10 @@ function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminDa
         onRecomputed={() => {
           // Data will be refreshed when user closes dialog
         }}
+      />
+      <CreateClubDialog
+        open={createClubDialogOpen}
+        onOpenChange={setCreateClubDialogOpen}
       />
     </section>
   );

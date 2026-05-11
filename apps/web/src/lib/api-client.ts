@@ -14,6 +14,26 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function createClub(
+  name: string,
+  description?: string,
+  city?: string,
+  country?: string
+): Promise<{ id: string; name: string; slug: string; description: string | null; city: string | null; country: string | null }> {
+  const response = await fetch(`${apiBaseUrl}/clubs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description, city, country }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || "Failed to create club");
+  }
+
+  return response.json();
+}
+
 export async function loadPlayersList(
   signal: AbortSignal,
   page: number,
