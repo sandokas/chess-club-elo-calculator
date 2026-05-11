@@ -3,17 +3,8 @@ chessclub.db
 *.bak
 *.db
 
-# Python cache / junk
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.log
-
-# Virtual environments (if you use one here)
-venv/
+# Virtual environments
 .env/
-.venv/
 .vscode/
 
 chessclub.db-journal
@@ -36,7 +27,6 @@ coverage/
 # IDE / Agent caches
 .agents/
 .codex/
-.pytest_cache/
 
 # Backups
 backups/

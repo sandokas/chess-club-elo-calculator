@@ -6,7 +6,6 @@ This document maps the repository structure and key files for the Chess Club pro
 
 ```
 chess-club/
-├── src/chess_club/          # Legacy Python CLI (being migrated)
 ├── apps/
 │   ├── api/                 # Node/TypeScript REST API
 │   └── web/                 # React web application
@@ -15,39 +14,13 @@ chess-club/
 │   ├── core/                # Core business logic
 │   └── db/                  # Database schema and migrations
 ├── configs/                 # Business and operational configs
-├── docs/
-│   └── legacy-python/       # Python documentation (reference only)
-├── tests/                   # Python tests
 ├── docker-compose.yml       # Docker services orchestration
 ├── pnpm-workspace.yaml       # pnpm workspace configuration
-├── pyproject.toml           # Python project configuration
-├── MIGRATION.md             # Migration progress tracking
 ├── ARCHITECTURE.md          # Architecture documentation
 ├── OPERATIONS.md            # Development operations rules
 ├── REPOSTRUCTURE.md         # Repository structure
 └── TECH_DEBT.md             # Technical debt tracking
 ```
-
-## Python CLI (`src/chess_club/`)
-
-**Purpose**: Legacy CLI application (being migrated to Node.js/TypeScript)
-
-**Status**: Reference only during migration. See `MIGRATION.md` for migration progress.
-
-**Key Files**:
-- `cli.py` / `__main__.py` - CLI entry point
-- `elo.py` - Elo calculation helpers
-- `glicko2.py` - Glicko-2 helpers
-- `ratings.py` - Rating orchestration
-- `db.py` - SQLite connection (legacy)
-- `repo.py` - Database query wrappers
-- `tournament.py` - Tournament logic
-- `ranking.py` - Leaderboard logic
-- `config.py` - Runtime configuration loader
-
-**Documentation**: See `docs/legacy-python/` for Python-specific documentation
-
-**Database Access**: Uses repository layer (`repo.py`) for all DB operations
 
 ## Node/TypeScript API (`apps/api/`)
 

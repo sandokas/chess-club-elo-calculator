@@ -1,2 +1,0 @@
-[console_scripts]
-chess-club = chess_club.cli:main

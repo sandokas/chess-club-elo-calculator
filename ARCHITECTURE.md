@@ -38,9 +38,7 @@ Unauthenticated users can only see safe club metadata. Real names, rosters, tour
 - Preserves legacy IDs for traceability
 - Recomputes rating state using the rating logic in apps/api/src/lib/ratings/
 
-Historical colors are inferred from the old player1/player2 columns because the CLI did not track real white/black colors.
-
-See `MIGRATION.md` for migration progress and remaining work.
+Historical colors are inferred from the old player1/player2 columns because the legacy system did not track real white/black colors.
 
 ## Runtime
 

@@ -55,7 +55,6 @@ This document outlines operational rules and conventions for the Chess Club proj
 - **Node/TypeScript API**: `apps/api/` - REST API server
 - **React Web App**: `apps/web/` - User interface
 - **Database**: PostgreSQL via Docker
-- **Legacy Python CLI**: `src/chess_club/` - Being migrated (reference only)
 
 **Packages**:
 - `@chess-club/config` - Shared configuration
@@ -81,8 +80,6 @@ This document outlines operational rules and conventions for the Chess Club proj
 - Follow React Router patterns in `apps/web/src/App.tsx`
 - Use TypeScript types for all API responses
 - Follow React component conventions (see ARCHITECTURE.md)
-
-**Legacy Python**: See `docs/legacy-python/STYLEGUIDE.md` (reference only during migration)
 
 ## Database Operations
 
@@ -115,4 +112,3 @@ Do not create alternate dump folders (`.dumps/`, `tmp/`, etc.) — keep all dump
 ## Testing
 
 **TypeScript**: `pnpm test` (Vitest)
-**Python**: `pytest` (see `docs/legacy-python/TESTS.md` - reference only)

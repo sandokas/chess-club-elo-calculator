@@ -1,6 +1,6 @@
 # Technical Debt Register
 
-This document tracks intentional shortcuts, deferred production-readiness work, and follow-up tasks discovered during the Python-to-Node migration.
+This document tracks intentional shortcuts, deferred production-readiness work, and follow-up tasks discovered during development.
 
 ## How to Use This File
 
@@ -45,14 +45,10 @@ Add new items under `Open Items` when work is deliberately postponed. Each item 
 - **Future fix**: Keep Node services running as the built-in `node` user and keep package-manager cache/store paths under `/home/node`. Consider moving Vite cache/temp output outside bind-mounted `node_modules` if this remains noisy.
 - **Trigger**: If root-owned or container-owned generated files reappear, or if local/host builds continue to conflict with container-generated caches.
 
-### Python CLI and documentation cleanup
-
-- **Status**: open
-- **Context**: The Python CLI application in `src/chess_club/` and its documentation in `docs/legacy-python/` remain in the repository as a reference during migration. Once the Node.js/TypeScript application has feature parity, these should be removed.
-- **Risk**: Keeping unused code and documentation creates confusion about what is current vs legacy, adds maintenance burden, and may lead to accidental use of deprecated code paths.
-- **Future fix**: Delete `src/chess_club/`, `docs/legacy-python/`, `tests/` (Python tests), and remove Python dependencies from `pyproject.toml` once migration is complete. Update all documentation to remove Python references.
-- **Trigger**: After Phase 3 (Admin Workflows) of the migration is complete and all features are verified to work in the Node.js/TypeScript application. See `MIGRATION.md` for migration phases.
-
 ## Resolved Items
 
-Add resolved technical debt here with a short note and date when items are completed.
+### Python CLI and documentation cleanup
+
+- **Status**: resolved
+- **Date**: May 2026
+- **Description**: Removed all Python legacy code, configuration, and documentation from the repository after migration to Node.js/TypeScript was complete.

@@ -53,9 +53,6 @@ chess-club/
 │   ├── config/       # Shared environment validation
 │   ├── core/         # Rating logic (Elo, Glicko-2)
 │   └── db/           # Database schema and migrations
-├── src/chess_club/   # Legacy Python CLI (being migrated)
-└── docs/
-    └── legacy-python/ # Python documentation (reference only)
 ```
 
 ## Development Commands
@@ -117,16 +114,8 @@ pnpm db:migrate
 
 See `ARCHITECTURE.md` for full architecture details.
 
-## Migration Status
-
-The project is migrating from a Python CLI to a TypeScript web application. See `MIGRATION.md` for current implementation status and remaining work.
-
 ## Configuration
 
 - Runtime configuration: `.env` (see `.env.example`)
 - Import configuration: `.env.import` (see `.env.import.example`)
 - Business configuration: `configs/business_config.json`
-
-## Legacy Python CLI
-
-A Python CLI application remains in `src/chess_club/` during migration as a behavioral reference for rating calculations. See `docs/legacy-python/` for Python-specific documentation.
