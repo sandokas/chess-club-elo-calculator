@@ -35,7 +35,7 @@ Rating calculation logic is centralized in `apps/api/src/lib/ratings/` with Elo 
 - When undoing a match result (setting to null): reverts player ratings to stored "before" values from that match, decrements `games_played`, and restores `last_game_date` to the next-most-recent real match. No recomputation of subsequent matches.
 - Only the player's LAST game can be updated - prevents updating earlier games without rewinding game by game.
 - Only one tournament can be ongoing at a time for a club (status `draft` or `active`).
-- Nuclear option: full club recompute via `POST /clubs/:clubId/recompute-ratings` if the rating algorithm changes.
+- Nuclear option: full club recompute via `POST /clubs/:clubId/ratings/recompute` if the rating algorithm changes.
 
 **Bye Matches (excluded from rating math)**
 Virtual matches for byes are stored with `black_player_id = NULL` and `result = 1`. They count for tournament standings (1 point) but are invisible to rating math:

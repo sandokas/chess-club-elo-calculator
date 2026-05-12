@@ -73,20 +73,30 @@ pnpm db:migrate
 
 ## API Endpoints
 
+### Health
 - `GET /health` - Health check
 - `GET /health/db` - Database health check
+
+### Club Management
 - `GET /clubs` - List clubs
+- `POST /clubs` - Create club
+- `PATCH /clubs/:clubId` - Update club details
+- `DELETE /clubs/:clubId` - Delete club
+
+### Player Management
 - `GET /clubs/:clubId/players` - List players (with filtering, sorting, pagination)
-- `GET /clubs/:clubId/tournaments` - List tournaments
-- `GET /clubs/:clubId/leaderboard` - Club leaderboard
-- `GET /tournaments/:id` - Tournament detail (matches, standings)
+- `POST /clubs/:clubId/players` - Create new player in club
+- `DELETE /clubs/:clubId/players/:playerId` - Delete player from club (only if no match history)
 - `GET /players/:id` - Player detail (match history, rating history)
+- `PUT /players/:id` - Update player details
 
 ### Tournament Management
 
+- `GET /clubs/:clubId/tournaments` - List tournaments (with filtering, sorting, pagination)
 - `POST /clubs/:clubId/tournaments` - Create tournament
 - `PUT /tournaments/:id` - Update tournament details
 - `DELETE /tournaments/:id` - Delete tournament (draft only)
+- `GET /tournaments/:id` - Tournament detail (matches, standings)
 
 ### Roster Management
 
@@ -113,9 +123,13 @@ pnpm db:migrate
 - `GET /tournaments/:id` - Tournament detail including standings (points + Buchholz + Sonneborn-Berger)
 - `GET /tournaments/:id/standings` - Standings with full Swiss tiebreakers (sorted: points → Buchholz → Sonneborn-Berger → wins)
 
+### Leaderboard
+
+- `GET /clubs/:clubId/leaderboard` - Club leaderboard (with optional active filter)
+
 ### Ratings
 
-- `POST /clubs/:clubId/recompute-ratings` - Full recompute of all player ratings from scratch (excludes byes)
+- `POST /clubs/:clubId/ratings/recompute` - Full recompute of all player ratings from scratch (excludes byes)
 
 See `ARCHITECTURE.md` for full architecture details.
 
