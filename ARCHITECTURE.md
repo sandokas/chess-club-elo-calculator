@@ -26,6 +26,55 @@ Players are separate from users. A player can exist without a login, and an admi
 
 Unauthenticated users can only see safe club metadata. Real names, rosters, tournaments, matches, and leaderboards require authenticated club membership. Mutations are reserved for owner, admin, and organizer roles.
 
+## Rating Calculation
+
+Rating calculation logic is centralized in `apps/api/src/lib/ratings/` with Elo and Glicko-2 implementations. `applyRatedMatch` is the single source of truth for per-match updates; `recomputeRatings` performs a full rebuild from scratch.
+
+**Rating Updates**
+- When setting a match result: calculates new ratings using `applyRatedMatch` and stores "before" and "after" values in the match audit fields. Increments `games_played` and updates `last_game_date` for both players.
+- When undoing a match result (setting to null): reverts player ratings to stored "before" values from that match, decrements `games_played`, and restores `last_game_date` to the next-most-recent real match. No recomputation of subsequent matches.
+- Only the player's LAST game can be updated - prevents updating earlier games without rewinding game by game.
+- Only one tournament can be ongoing at a time for a club (status `draft` or `active`).
+- Nuclear option: full club recompute via `POST /clubs/:clubId/recompute-ratings` if the rating algorithm changes.
+
+**Bye Matches (excluded from rating math)**
+Virtual matches for byes are stored with `black_player_id = NULL` and `result = 1`. They count for tournament standings (1 point) but are invisible to rating math:
+- `applyRatedMatch` short-circuits when `black === null` - no ELO/Glicko change, no `games_played` increment, no `last_game_date` update.
+- `recomputeRatings` and all rating queries filter `black_player_id IS NOT NULL`.
+- Consequence: a player returning after a long absence and getting a bye still has their full RD inflation applied on their next real game.
+
+**Match completion**
+Match completion is derived from `result IS NOT NULL`. There is no separate `status` column on matches (removed in migration `0004`).
+
+**Rating Audit Fields**
+Matches store rating audit data for reversion:
+- `white_elo_before`, `white_elo_after`, `black_elo_before`, `black_elo_after`
+- `white_glicko_rating_before`, `white_glicko_rating_after`, etc.
+- Bye matches leave all audit fields `NULL`.
+- Cleared when match result is undone.
+
+## Swiss Pairings
+
+The Swiss pairing engine in `apps/api/src/lib/swiss-pairing.ts` implements the FIDE Dutch System:
+
+- **Round 1**: players ordered by ELO (or randomly per tournament setting); split into S1/S2 halves; S1[i] paired with S2[i]; colors alternate by board to balance starts.
+- **Subsequent rounds**: master ranking by `points → Buchholz → Sonneborn-Berger → ELO`. Players grouped by points; each score group is split S1 vs S2 and paired top-to-bottom.
+- **Backtracking**: transposition (permute S2) then exchange (swap S1↔S2 boundary) when a candidate pair has already played or would violate color rules.
+- **Downfloaters**: odd score groups float their lowest-ranked player down to the next group.
+- **Color allocation**: per-round color history is reconstructed from real games only (byes excluded). Preferences: absolute (no 3 in a row, max |diff| 2) → strong (|diff| = 1) → mild (alternate from last) → board-alternation.
+- **Byes**: round 1 = lowest seed; later rounds = lowest score-group tiebreaks among players without a prior bye.
+
+## Standings & Tiebreakers
+
+Standings are computed on-read (not stored) via `GET /tournaments/:id` and `GET /tournaments/:id/standings`. Sort order:
+
+1. **Points** (1 / 0.5 / 0 per game; bye = 1)
+2. **Buchholz** - sum of opponents' points
+3. **Sonneborn-Berger** - sum of opponents' points weighted by your result (full for win, half for draw)
+4. **Wins** (then ELO as final fallback)
+
+Buchholz/SB exclude bye opponents (no opponent points to sum).
+
 ## Data Import
 
 `packages/db/scripts/import-sqlite.ts` imports existing SQLite databases into PostgreSQL:

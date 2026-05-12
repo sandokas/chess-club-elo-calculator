@@ -1,5 +1,6 @@
 import { type FastifyInstance } from "fastify";
 import { createPool } from "@chess-club/db";
+import { ratingConfig } from "@chess-club/config";
 import {
   parsePaginationParams,
   parseSortParams,
@@ -16,6 +17,11 @@ type ClubParams = {
 
 type PlayerParams = {
   id: string;
+};
+
+type ClubPlayerParams = {
+  clubId: string;
+  playerId: string;
 };
 
 type PlayersQuerystring = {
@@ -94,13 +100,20 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
           [request.params.clubId, displayName.trim()]
         );
 
-        // Create player ratings record
+        // Create player ratings record using the single rating config source of truth.
         await pool.query(
           `
             INSERT INTO player_ratings (player_id, club_id, elo, glicko_rating, glicko_rd, glicko_vol, games_played)
-            VALUES ($1, $2, 1200, 1500, 350, 0.06, 0)
+            VALUES ($1, $2, $3, $4, $5, $6, 0)
           `,
-          [result.rows[0].id, request.params.clubId]
+          [
+            result.rows[0].id,
+            request.params.clubId,
+            ratingConfig.defaultElo,
+            ratingConfig.g2DefaultRating,
+            ratingConfig.g2DefaultRd,
+            ratingConfig.g2DefaultVol
+          ]
         );
 
         return reply.status(201).send({ player: result.rows[0] });
@@ -110,7 +123,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
     }
   );
 
-  app.delete<{ Params: ClubParams & PlayerParams }>(
+  app.delete<{ Params: ClubPlayerParams }>(
     "/clubs/:clubId/players/:playerId",
     async (request, reply) => {
       const pool = createPool();
@@ -156,7 +169,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
 
   app.get<{ Params: ClubParams; Querystring: PlayersQuerystring }>(
     "/clubs/:clubId/players",
-    async (request) => {
+    async (request, reply) => {
       const pool = createPool();
       try {
         const { page, limit } = parsePaginationParams(request.query);
@@ -245,6 +258,14 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
         );
         const total = parseInt(countResult.rows[0].total, 10);
         const totalPages = Math.ceil(total / limit);
+
+        if (page > totalPages && totalPages > 0) {
+          return reply.status(404).send({
+            error: "NotFound",
+            message: "Page exceeds total pages"
+          });
+        }
+
         const offset = (page - 1) * limit;
 
         params.push(limit, offset);
@@ -352,7 +373,6 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
           JOIN players bp ON bp.id = m.black_player_id
           JOIN tournaments t ON t.id = m.tournament_id
           WHERE (m.white_player_id = $1 OR m.black_player_id = $1)
-            AND m.status = 'completed'
             AND m.result IS NOT NULL
           ORDER BY m.played_on DESC, m.id DESC
           LIMIT 20

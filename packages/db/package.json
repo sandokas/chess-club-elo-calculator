@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@chess-club/config": "workspace:*",
-    "@chess-club/core": "workspace:*",
     "better-sqlite3": "^11.7.0",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.3",

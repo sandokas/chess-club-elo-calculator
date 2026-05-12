@@ -23,7 +23,6 @@ export const tournamentFormatEnum = pgEnum("tournament_format", ["manual", "swis
 export const pairingMethodEnum = pgEnum("pairing_method", ["seeded_by_rating", "random"]);
 export const tournamentStatusEnum = pgEnum("tournament_status", ["draft", "active", "completed"]);
 export const roundStatusEnum = pgEnum("round_status", ["scheduled", "active", "completed"]);
-export const matchStatusEnum = pgEnum("match_status", ["scheduled", "completed", "void"]);
 
 export const users = pgTable(
   "users",
@@ -215,9 +214,9 @@ export const tournamentPlayers = pgTable(
       .notNull()
       .references(() => players.id, { onDelete: "cascade" }),
     seed: integer("seed"),
+    whiteCount: integer("white_count").notNull().default(0),
+    blackCount: integer("black_count").notNull().default(0),
     droppedOutRound: integer("dropped_out_round"),
-    whiteCount: integer("white_count").default(0),
-    blackCount: integer("black_count").default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
@@ -259,12 +258,10 @@ export const matches = pgTable(
       .notNull()
       .references(() => players.id, { onDelete: "restrict" }),
     blackPlayerId: uuid("black_player_id")
-      .notNull()
       .references(() => players.id, { onDelete: "restrict" }),
     result: doublePrecision("result"),
     playedOn: date("played_on").notNull(),
     boardNumber: integer("board_number"),
-    status: matchStatusEnum("status").notNull().default("scheduled"),
     legacyId: integer("legacy_id"),
     whiteEloBefore: doublePrecision("white_elo_before"),
     whiteEloAfter: doublePrecision("white_elo_after"),

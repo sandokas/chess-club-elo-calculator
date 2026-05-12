@@ -55,4 +55,5 @@ export type Tournament = {
   format?: string;
   totalRounds?: number;
   pairingMethod?: string;
+  clubId: string;
 };

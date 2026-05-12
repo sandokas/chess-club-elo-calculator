@@ -1,10 +1,9 @@
 import Database from "better-sqlite3";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 import pg from "pg";
-import { loadImportEnv } from "@chess-club/config";
-import { defaultRatingConfig, recomputeRatings, type RatingConfig } from "@chess-club/core";
+import { loadImportEnv, loadRatingConfig } from "@chess-club/config";
 
 
 type LegacyPlayer = {
@@ -71,27 +70,6 @@ function loadImportEnvFile(): string {
   return process.cwd();
 }
 
-function loadRatingConfig(businessConfigPath: string): RatingConfig {
-  try {
-    const parsed = JSON.parse(readFileSync(businessConfigPath, "utf8")) as Record<string, unknown>;
-    return {
-      ...defaultRatingConfig,
-      minGamesForOfficial: Number(parsed.MIN_GAMES_FOR_OFFICIAL ?? defaultRatingConfig.minGamesForOfficial),
-      ratingSystem: (parsed.RATING_SYSTEM as RatingConfig["ratingSystem"]) ?? defaultRatingConfig.ratingSystem,
-      defaultElo: Number(parsed.DEFAULT_ELO ?? defaultRatingConfig.defaultElo),
-      eloKThresholds: (parsed.ELO_K_THRESHOLDS as [number, number]) ?? defaultRatingConfig.eloKThresholds,
-      eloKValues: (parsed.ELO_K_VALUES as [number, number, number]) ?? defaultRatingConfig.eloKValues,
-      eloDecimals: Number(parsed.ELO_DECIMALS ?? defaultRatingConfig.eloDecimals),
-      g2DefaultRating: Number(parsed.G2_DEFAULT_RATING ?? defaultRatingConfig.g2DefaultRating),
-      g2DefaultRd: Number(parsed.G2_DEFAULT_RD ?? defaultRatingConfig.g2DefaultRd),
-      g2DefaultVol: Number(parsed.G2_DEFAULT_VOL ?? defaultRatingConfig.g2DefaultVol),
-      g2RdIncreasePerDay: Number(parsed.G2_RD_INCREASE_PER_DAY ?? defaultRatingConfig.g2RdIncreasePerDay)
-    };
-  } catch {
-    return defaultRatingConfig;
-  }
-}
-
 async function one<T extends pg.QueryResultRow>(client: pg.PoolClient, sql: string, values: unknown[]): Promise<T> {
   const result = await client.query<T>(sql, values);
   const row = result.rows[0];
@@ -99,13 +77,6 @@ async function one<T extends pg.QueryResultRow>(client: pg.PoolClient, sql: stri
     throw new Error(`Expected one row for query: ${sql}`);
   }
   return row;
-}
-
-function diff(a: number | null | undefined, b: number | null | undefined): number {
-  if (a == null || b == null) {
-    return 0;
-  }
-  return Math.abs(a - b);
 }
 
 async function main(): Promise<void> {
@@ -336,100 +307,8 @@ async function main(): Promise<void> {
       matchIds.set(legacy.id, inserted.id);
     }
 
-    const recomputed = recomputeRatings(
-      [...playerIds.values()],
-      legacyMatches
-        .filter((match) => matchIds.has(match.id))
-        .map((match) => ({
-          id: matchIds.get(match.id)!,
-          whitePlayerId: playerIds.get(match.player1_id)!,
-          blackPlayerId: playerIds.get(match.player2_id)!,
-          result: match.result,
-          date: match.date
-        })),
-      ratingConfig
-    );
-
-    let maxEloDiff = 0;
-    for (const legacy of legacyPlayers) {
-      const playerId = playerIds.get(legacy.id);
-      if (!playerId) {
-        continue;
-      }
-      const profile = recomputed.profiles.get(playerId);
-      if (!profile) {
-        continue;
-      }
-      maxEloDiff = Math.max(maxEloDiff, diff(legacy.elo, profile.elo));
-      await client.query(
-        `
-          UPDATE player_ratings
-          SET elo = $1,
-              glicko_rating = $2,
-              glicko_rd = $3,
-              glicko_vol = $4,
-              games_played = $5,
-              last_game_date = $6,
-              updated_at = now()
-          WHERE player_id = $7
-        `,
-        [
-          profile.elo,
-          profile.glicko.rating,
-          profile.glicko.rd,
-          profile.glicko.vol,
-          profile.gamesPlayed,
-          profile.lastGameDate,
-          playerId
-        ]
-      );
-    }
-
-    for (const audit of recomputed.audits) {
-      await client.query(
-        `
-          UPDATE matches
-          SET white_elo_before = $1,
-              white_elo_after = $2,
-              black_elo_before = $3,
-              black_elo_after = $4,
-              white_glicko_rating_before = $5,
-              white_glicko_rating_after = $6,
-              white_glicko_rd_before = $7,
-              white_glicko_rd_after = $8,
-              white_glicko_vol_before = $9,
-              white_glicko_vol_after = $10,
-              black_glicko_rating_before = $11,
-              black_glicko_rating_after = $12,
-              black_glicko_rd_before = $13,
-              black_glicko_rd_after = $14,
-              black_glicko_vol_before = $15,
-              black_glicko_vol_after = $16,
-              updated_at = now()
-          WHERE id = $17
-        `,
-        [
-          audit.whiteEloBefore,
-          audit.whiteEloAfter,
-          audit.blackEloBefore,
-          audit.blackEloAfter,
-          audit.whiteGlickoBefore.rating,
-          audit.whiteGlickoAfter.rating,
-          audit.whiteGlickoBefore.rd,
-          audit.whiteGlickoAfter.rd,
-          audit.whiteGlickoBefore.vol,
-          audit.whiteGlickoAfter.vol,
-          audit.blackGlickoBefore.rating,
-          audit.blackGlickoAfter.rating,
-          audit.blackGlickoBefore.rd,
-          audit.blackGlickoAfter.rd,
-          audit.blackGlickoBefore.vol,
-          audit.blackGlickoAfter.vol,
-          audit.matchId
-        ]
-      );
-    }
-
+    // Note: rating recomputation lives in the API (`@chess-club/api`). After importing,
+    // trigger the club's recompute endpoint to reapply ratings against the current config.
     await client.query("COMMIT");
 
     console.log("SQLite import complete.");
@@ -437,9 +316,7 @@ async function main(): Promise<void> {
       players: legacyPlayers.length,
       tournaments: legacyTournaments.length,
       tournamentPlayers: legacyTournamentPlayers.length,
-      matches: legacyMatches.length,
-      recomputedMatches: recomputed.audits.length,
-      maxImportedVsRecomputedEloDiff: Number(maxEloDiff.toFixed(6))
+      matches: legacyMatches.length
     });
   } catch (error) {
     await client.query("ROLLBACK");

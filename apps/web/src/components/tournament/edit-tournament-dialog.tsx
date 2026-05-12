@@ -24,6 +24,7 @@ type Tournament = {
   startsOn: string | null;
   status: string;
   pairingMethod?: string;
+  totalRounds?: number;
 };
 
 interface EditTournamentDialogProps {
@@ -47,6 +48,7 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
       startsOn: tournament.startsOn ? tournament.startsOn.split('T')[0] : "",
       status: tournament.status as "draft" | "active" | "completed",
       pairingMethod: tournament.pairingMethod as "seeded_by_rating" | "random" | undefined,
+      totalRounds: tournament.totalRounds,
     },
   });
 
@@ -144,6 +146,22 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
             </select>
             {form.formState.errors.status && (
               <p className="text-sm text-destructive">{form.formState.errors.status.message}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="totalRounds">Total Rounds (optional)</Label>
+            <Input
+              id="totalRounds"
+              type="number"
+              min="1"
+              max="50"
+              {...form.register("totalRounds", { 
+                valueAsNumber: true 
+              })}
+              disabled={isSubmitting}
+            />
+            {form.formState.errors.totalRounds && (
+              <p className="text-sm text-destructive">{form.formState.errors.totalRounds.message}</p>
             )}
           </div>
           {!isCompleted && (

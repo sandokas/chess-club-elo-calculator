@@ -22,6 +22,20 @@
       "when": 1778398948997,
       "tag": "0002_early_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778598029392,
+      "tag": "0003_virtual_bye_matches",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778603400000,
+      "tag": "0004_drop_match_status",
+      "breakpoints": true
     }
   ]
 }

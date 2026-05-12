@@ -98,19 +98,24 @@ pnpm db:migrate
 
 ### Round Management
 
-- `POST /tournaments/:id/rounds` - Generate next round pairings
+- `POST /tournaments/:id/rounds` - Generate next round pairings (FIDE Dutch Swiss)
 - `GET /tournaments/:id/rounds` - Get tournament rounds
 - `PUT /rounds/:id/starts-on` - Update round start time
-- `PUT /rounds/:id/status` - Update round status
+- `DELETE /rounds/:id` - Delete a round (only if no real-game results have been entered; bye matches are ignored)
 - `GET /rounds/:id/matches` - Get matches for a round
 
 ### Match Management
 
-- `PUT /matches/:id/result` - Update match result
+- `PUT /matches/:id/result` - Update or undo a match result. Bye matches (virtual, `black_player_id = NULL`) are auto-completed with `result = 1` at round generation and never affect ELO/Glicko or `games_played`.
 
 ### Standings
 
-- `GET /tournaments/:id/standings` - Get tournament standings with Swiss tiebreakers (Buchholz, Sonneborn-Berger)
+- `GET /tournaments/:id` - Tournament detail including standings (points + Buchholz + Sonneborn-Berger)
+- `GET /tournaments/:id/standings` - Standings with full Swiss tiebreakers (sorted: points → Buchholz → Sonneborn-Berger → wins)
+
+### Ratings
+
+- `POST /clubs/:clubId/recompute-ratings` - Full recompute of all player ratings from scratch (excludes byes)
 
 See `ARCHITECTURE.md` for full architecture details.
 

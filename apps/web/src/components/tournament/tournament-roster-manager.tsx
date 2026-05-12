@@ -97,12 +97,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
 
   const loadClubPlayers = async () => {
     try {
-      const clubsResponse = await fetch(`${apiBaseUrl}/clubs`);
-      if (!clubsResponse.ok) return;
-      const clubsData = await clubsResponse.json();
-      if (clubsData.clubs.length === 0) return;
-      
-      const clubId = clubsData.clubs[0].id;
+      const clubId = tournament.clubId;
       const params = new URLSearchParams({
         sortBy: "gamesPlayed",
         sortOrder: "desc",

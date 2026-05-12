@@ -5,9 +5,33 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, { signal });
   if (!response.ok) {
+    if (response.status === 404) {
+      const error = await response.json();
+      throw new Error(error.message || "Not found");
+    }
     throw new Error(`API responded with ${response.status} for ${path}`);
   }
   return response.json() as Promise<T>;
+}
+
+export async function createClub(
+  name: string,
+  description?: string,
+  city?: string,
+  country?: string
+): Promise<{ id: string; name: string; slug: string; description: string | null; city: string | null; country: string | null }> {
+  const response = await fetch(`${apiBaseUrl}/clubs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description, city, country }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || "Failed to create club");
+  }
+
+  return response.json();
 }
 
 export async function loadPlayersList(
@@ -25,12 +49,11 @@ export async function loadPlayersList(
   gamesPlayedMin: string,
   gamesPlayedMax: string,
   lastGameDateAfter: string,
-  lastGameDateBefore: string
+  lastGameDateBefore: string,
+  club?: { id: string }
 ): Promise<PlayersListData> {
-  const clubsPayload = await fetchJson<{ clubs: { id: string }[] }>("/clubs", signal);
-  const club = clubsPayload.clubs[0];
   if (!club) {
-    throw new Error("No clubs found in the database.");
+    throw new Error("No club selected. Please select a club from the dropdown.");
   }
 
   const params = new URLSearchParams({

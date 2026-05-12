@@ -11,6 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../componen
 import { loadPlayersList } from "../lib/api-client.js";
 import { formatRating, formatDate } from "../lib/formatters.js";
 import type { PlayersListData } from "../lib/types.js";
+import { useClub } from "../contexts/club-context.js";
 
 type PlayersListState =
   | { status: "loading" }
@@ -20,6 +21,7 @@ type PlayersListState =
 export function PlayersListPage() {
   const [state, setState] = useState<PlayersListState>({ status: "loading" });
   const [searchParams, setSearchParams] = useSearchParams();
+  const { club, isLoading: clubLoading, error: clubError } = useClub();
 
   const page = parseInt(searchParams.get("page") || "1", 10);
   const limit = parseInt(searchParams.get("limit") || "20", 10);
@@ -38,14 +40,25 @@ export function PlayersListPage() {
   const lastGameDateBefore = searchParams.get("lastGameDateBefore") || "";
 
   useEffect(() => {
+    if (clubLoading || !club) return;
+    if (clubError) {
+      setState({ status: "error", message: clubError });
+      return;
+    }
+
     const controller = new AbortController();
 
-    loadPlayersList(controller.signal, page, limit, sortBy, sortOrder, name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore)
+    loadPlayersList(controller.signal, page, limit, sortBy, sortOrder, name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore, club)
       .then((data) => {
         setState({ status: "ok", data });
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        if (error instanceof Error && error.message === "Page exceeds total pages") {
+          // Redirect to first page
+          setSearchParams({ page: "1", sortBy, sortOrder, limit: limit.toString(), name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore });
           return;
         }
         setState({
@@ -55,7 +68,7 @@ export function PlayersListPage() {
       });
 
     return () => controller.abort();
-  }, [page, limit, sortBy, sortOrder, name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore]);
+  }, [page, limit, sortBy, sortOrder, name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore, club, clubLoading, clubError]);
 
   const handleSort = (column: string) => {
     const newSortOrder = sortBy === column ? (sortOrder === "asc" ? "desc" : "asc") : "desc";
