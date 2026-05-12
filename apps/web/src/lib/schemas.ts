@@ -12,6 +12,7 @@ export const tournamentEditSchema = z.object({
   startsOn: z.string().optional(),
   status: z.enum(["draft", "active", "completed"]).optional(),
   pairingMethod: z.enum(["seeded_by_rating", "random"]).optional(),
+  totalRounds: z.number().min(1).max(50).optional(),
 });
 
 export type TournamentEditInput = z.infer<typeof tournamentEditSchema>;

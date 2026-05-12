@@ -12,21 +12,21 @@ export type RatingProfile = {
 export type MatchInput = {
   id: string | number;
   whitePlayerId: string | number;
-  blackPlayerId: string | number;
+  blackPlayerId: string | number | null;
   result: number | null;
   date: string;
 };
 
 export type MatchRatingAudit = {
-  matchId: string | number;
+  matchId?: string | number;
   whiteEloBefore: number;
   whiteEloAfter: number;
-  blackEloBefore: number;
-  blackEloAfter: number;
+  blackEloBefore: number | null;
+  blackEloAfter: number | null;
   whiteGlickoBefore: GlickoProfile;
   whiteGlickoAfter: GlickoProfile;
-  blackGlickoBefore: GlickoProfile;
-  blackGlickoAfter: GlickoProfile;
+  blackGlickoBefore: GlickoProfile | null;
+  blackGlickoAfter: GlickoProfile | null;
 };
 
 export function defaultRatingProfile(config: RatingConfig = defaultRatingConfig): RatingProfile {
@@ -65,39 +65,71 @@ function computeGlickoUpdate(
   return glicko2Update(player, opponent, score, matchDate, { config });
 }
 
+export type RatedMatch = {
+  white: RatingProfile;
+  black: RatingProfile | null;
+  audit: MatchRatingAudit;
+};
+
 export function applyRatedMatch(
   white: RatingProfile,
-  black: RatingProfile,
+  black: RatingProfile | null,
   result: number,
-  matchDate: string,
-  config: RatingConfig = defaultRatingConfig
-): { white: RatingProfile; black: RatingProfile; audit: Omit<MatchRatingAudit, "matchId"> } {
+  matchDate: Date,
+  config?: RatingConfig
+): RatedMatch {
+  // Skip rating calculation for bye matches (black player is null)
+  if (black === null) {
+    return {
+      white: {
+        ...white,
+        gamesPlayed: white.gamesPlayed,
+        lastGameDate: white.lastGameDate
+      },
+      black: null,
+      audit: {
+        whiteEloBefore: white.elo,
+        whiteEloAfter: white.elo,
+        blackEloBefore: null,
+        blackEloAfter: null,
+        whiteGlickoBefore: white.glicko,
+        whiteGlickoAfter: white.glicko,
+        blackGlickoBefore: null,
+        blackGlickoAfter: null
+      }
+    };
+  }
+
+  const effectiveConfig = config || defaultRatingConfig;
+
   const [whiteEloAfter, blackEloAfter] = computeEloChange(
     white.elo,
     black.elo,
     white.gamesPlayed,
     black.gamesPlayed,
     result,
-    config
+    effectiveConfig
   );
 
-  const whiteGlickoAfter = computeGlickoUpdate(white.glicko, black.glicko, result, matchDate, config);
-  const blackGlickoAfter = computeGlickoUpdate(black.glicko, white.glicko, 1 - result, matchDate, config);
+  const matchDateStr = matchDate.toISOString().split('T')[0] || '';
+  const whiteGlickoAfter = computeGlickoUpdate(white.glicko, black.glicko, result, matchDateStr, effectiveConfig);
+  const blackGlickoAfter = computeGlickoUpdate(black.glicko, white.glicko, 1 - result, matchDateStr, effectiveConfig);
 
   return {
     white: {
       elo: whiteEloAfter,
       glicko: whiteGlickoAfter,
       gamesPlayed: white.gamesPlayed + 1,
-      lastGameDate: matchDate
+      lastGameDate: matchDateStr
     },
     black: {
       elo: blackEloAfter,
       glicko: blackGlickoAfter,
       gamesPlayed: black.gamesPlayed + 1,
-      lastGameDate: matchDate
+      lastGameDate: matchDateStr
     },
     audit: {
+      matchId: '',
       whiteEloBefore: white.elo,
       whiteEloAfter,
       blackEloBefore: black.elo,
@@ -127,15 +159,21 @@ export function recomputeRatings(
     if (match.result === null) {
       continue;
     }
+    // Skip bye matches entirely (no opponent → no rating change).
+    if (match.blackPlayerId === null || match.blackPlayerId === undefined) {
+      continue;
+    }
     const white = profiles.get(match.whitePlayerId);
     const black = profiles.get(match.blackPlayerId);
     if (!white || !black) {
       throw new Error(`Match ${match.id} references an unknown player.`);
     }
-    const applied = applyRatedMatch(white, black, match.result, match.date, config);
+    const applied = applyRatedMatch(white, black, match.result, new Date(match.date), config);
     profiles.set(match.whitePlayerId, applied.white);
-    profiles.set(match.blackPlayerId, applied.black);
-    audits.push({ matchId: match.id, ...applied.audit });
+    if (applied.black) {
+      profiles.set(match.blackPlayerId, applied.black);
+    }
+    audits.push({ ...applied.audit, matchId: match.id });
   }
 
   return { profiles, audits };

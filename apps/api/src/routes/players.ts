@@ -365,7 +365,6 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
           JOIN players bp ON bp.id = m.black_player_id
           JOIN tournaments t ON t.id = m.tournament_id
           WHERE (m.white_player_id = $1 OR m.black_player_id = $1)
-            AND m.status = 'completed'
             AND m.result IS NOT NULL
           ORDER BY m.played_on DESC, m.id DESC
           LIMIT 20

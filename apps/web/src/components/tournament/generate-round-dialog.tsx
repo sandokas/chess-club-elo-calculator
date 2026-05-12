@@ -34,11 +34,25 @@ export function GenerateRoundDialog({ tournament, open, onOpenChange, onGenerate
         headers: {
           "Content-Type": "application/json",
         },
+        body: JSON.stringify({}),
       });
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({ message: "Unknown error" }));
         throw new Error(error.message || `API responded with ${response.status}`);
+      }
+
+      // If tournament is in draft status, set it to active
+      if (tournament.status === "draft") {
+        const updateResponse = await fetch(`${apiBaseUrl}/tournaments/${tournament.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "active" }),
+        });
+        if (!updateResponse.ok) {
+          const error = await updateResponse.json().catch(() => ({ message: "Unknown error" }));
+          throw new Error(error.message || `Failed to update tournament status`);
+        }
       }
 
       toast({
