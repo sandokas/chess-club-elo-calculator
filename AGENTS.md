@@ -58,6 +58,7 @@ Do not add the value anywhere else.
 ## Other project conventions
 
 - **Package manager:** pnpm only. Never npm or yarn.
+- **Dependency installation:** Prefer explicit dependency installation (`pnpm add`) over one-off execution tools like `pnpm dlx` or `npx`. Use `pnpm exec` for running binaries to ensure all executed code is versioned, reviewable, and reproducible via lockfiles.
 - **Services:** run via `docker compose up -d`. Don't run `pnpm --filter web build` while compose is up (breaks volume-mounted `node_modules`).
 - **DB access:** API uses direct PostgreSQL queries via a connection pool from `@chess-club/db`.
 - **Backups:** Postgres dumps go in the gitignored `backups/` folder with timestamped filenames. See `OPERATIONS.md`.
