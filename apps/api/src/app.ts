@@ -592,6 +592,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
           LEFT JOIN matches m
             ON m.club_id = p.club_id
            AND m.result IS NOT NULL
+           AND m.black_player_id IS NOT NULL
            AND (m.white_player_id = p.id OR m.black_player_id = p.id)
           WHERE p.club_id = $1 ${activeOnly ? 'AND p.active = true' : ''}
           GROUP BY p.id, pr.player_id
@@ -666,9 +667,9 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
           SELECT
             p.id AS "playerId",
             p.display_name AS "playerName",
-            COUNT(CASE WHEN (m.white_player_id = p.id AND m.result = 1) OR (m.black_player_id = p.id AND m.result = 0) THEN 1 END)::int AS wins,
-            COUNT(CASE WHEN m.result = 0.5 THEN 1 END)::int AS draws,
-            COUNT(CASE WHEN (m.white_player_id = p.id AND m.result = 0) OR (m.black_player_id = p.id AND m.result = 1) THEN 1 END)::int AS losses,
+            COUNT(CASE WHEN m.black_player_id IS NOT NULL AND ((m.white_player_id = p.id AND m.result = 1) OR (m.black_player_id = p.id AND m.result = 0)) THEN 1 END)::int AS wins,
+            COUNT(CASE WHEN m.black_player_id IS NOT NULL AND m.result = 0.5 THEN 1 END)::int AS draws,
+            COUNT(CASE WHEN m.black_player_id IS NOT NULL AND ((m.white_player_id = p.id AND m.result = 0) OR (m.black_player_id = p.id AND m.result = 1)) THEN 1 END)::int AS losses,
             COALESCE(SUM(
               CASE
                 WHEN m.white_player_id = p.id THEN COALESCE(m.result, 0)
@@ -1912,9 +1913,9 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
                 ELSE 0
               END
             ), 0)::float AS points,
-            COUNT(CASE WHEN (m.white_player_id = tp.player_id AND m.result = 1) OR (m.black_player_id = tp.player_id AND m.result = 0) THEN 1 END)::int AS wins,
-            COUNT(CASE WHEN m.result = 0.5 THEN 1 END)::int AS draws,
-            COUNT(CASE WHEN (m.white_player_id = tp.player_id AND m.result = 0) OR (m.black_player_id = tp.player_id AND m.result = 1) THEN 1 END)::int AS losses,
+            COUNT(CASE WHEN m.black_player_id IS NOT NULL AND ((m.white_player_id = tp.player_id AND m.result = 1) OR (m.black_player_id = tp.player_id AND m.result = 0)) THEN 1 END)::int AS wins,
+            COUNT(CASE WHEN m.black_player_id IS NOT NULL AND m.result = 0.5 THEN 1 END)::int AS draws,
+            COUNT(CASE WHEN m.black_player_id IS NOT NULL AND ((m.white_player_id = tp.player_id AND m.result = 0) OR (m.black_player_id = tp.player_id AND m.result = 1)) THEN 1 END)::int AS losses,
             pr.elo,
             tp.dropped_out_round AS "droppedOutRound"
           FROM tournament_players tp
