@@ -31,7 +31,7 @@ export function ClubProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const club = clubs.find(c => c.id === selectedClubId) || clubs[0] || null;
+  const club = clubs.find(c => c.id === selectedClubId) || null;
 
   useEffect(() => {
     // Load saved club ID from localStorage

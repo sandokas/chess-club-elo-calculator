@@ -443,11 +443,7 @@ async function loadAdminData(signal: AbortSignal, activeOnly: boolean = true, cl
 
 async function loadTournamentsList(signal: AbortSignal, page: number, limit: number, sortBy: string, sortOrder: string, name: string, status: string, club?: Club): Promise<TournamentsListData> {
   if (!club) {
-    const clubsPayload = await fetchJson<{ clubs: Club[] }>("/clubs", signal);
-    club = clubsPayload.clubs[0];
-    if (!club) {
-      throw new Error("No clubs found in the database.");
-    }
+    throw new Error("No club selected. Please select a club from the dropdown.");
   }
 
   const params = new URLSearchParams({
@@ -669,6 +665,7 @@ type TournamentDetail = {
     matchCount: number;
     pairingMethod?: string;
     totalRounds?: number;
+    clubId: string;
   };
   matches: Match[];
   standings: Standing[];

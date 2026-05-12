@@ -12,6 +12,7 @@ import {
 } from "../ui/dialog";
 import { useToast } from "../../hooks/use-toast";
 import type { Tournament } from "../../lib/types.js";
+import { getCurrentDateTime } from "../../lib/date-utils.js";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -29,12 +30,17 @@ export function GenerateRoundDialog({ tournament, open, onOpenChange, onGenerate
   const onSubmit = async () => {
     setIsSubmitting(true);
     try {
+      // Use current date/time for the round start
+      const bodyData = {
+        startsOn: getCurrentDateTime(),
+      };
+
       const response = await fetch(`${apiBaseUrl}/tournaments/${tournament.id}/rounds`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify(bodyData),
       });
 
       if (!response.ok) {

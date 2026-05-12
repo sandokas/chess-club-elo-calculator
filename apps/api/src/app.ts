@@ -193,6 +193,34 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     }
   });
 
+  app.delete<{ Params: ClubParams }>("/clubs/:clubId", async (request, reply) => {
+    const pool = createPool();
+    try {
+      // Verify club exists
+      const clubResult = await pool.query(
+        `SELECT id, name FROM clubs WHERE id = $1`,
+        [request.params.clubId]
+      );
+
+      if (clubResult.rows.length === 0) {
+        return reply.status(404).send({
+          error: "NotFound",
+          message: "Club not found"
+        });
+      }
+
+      // Delete club - cascade handles all related data
+      await pool.query(
+        `DELETE FROM clubs WHERE id = $1`,
+        [request.params.clubId]
+      );
+
+      return reply.status(204).send();
+    } finally {
+      await pool.end();
+    }
+  });
+
   app.post<{ Params: ClubParams }>("/clubs/:clubId/ratings/recompute", async (request, reply) => {
     const pool = createPool();
     try {
@@ -592,6 +620,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
             t.legacy_id AS "legacyId",
             t.pairing_method AS "pairingMethod",
             t.total_rounds AS "totalRounds",
+            t.club_id AS "clubId",
             COUNT(DISTINCT tp.player_id)::int AS "playerCount",
             COUNT(DISTINCT m.id)::int AS "matchCount"
           FROM tournaments t
@@ -1262,9 +1291,11 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
   });
 
   // Round management endpoints
-  app.post<{ Params: TournamentParams }>("/tournaments/:id/rounds", async (request, reply) => {
+  app.post<{ Params: TournamentParams; Body: { startsOn?: string } }>("/tournaments/:id/rounds", async (request, reply) => {
     const pool = createPool();
     try {
+      const { startsOn } = request.body;
+      
       // Get tournament details
       const tournamentResult = await pool.query(
         `SELECT id, status, format, club_id, pairing_method, total_rounds FROM tournaments WHERE id = $1`,
@@ -1333,14 +1364,15 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         });
       }
 
-      // Create round
+      // Create round with start date (default to NOW() if not provided)
+      const startsOnValue = startsOn ? new Date(startsOn).toISOString() : new Date().toISOString();
       const roundResult = await pool.query(
         `
-          INSERT INTO rounds (tournament_id, number, status)
-          VALUES ($1, $2, 'scheduled')
+          INSERT INTO rounds (tournament_id, number, status, starts_on)
+          VALUES ($1, $2, 'scheduled', $3)
           RETURNING id
         `,
-        [request.params.id, nextRoundNumber]
+        [request.params.id, nextRoundNumber, startsOnValue]
       );
 
       const roundId = roundResult.rows[0].id;

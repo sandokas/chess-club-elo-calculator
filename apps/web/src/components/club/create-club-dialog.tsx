@@ -58,7 +58,8 @@ export function CreateClubDialog({ open, onOpenChange }: CreateClubDialogProps) 
         description: "Club created successfully.",
       });
 
-      // Refresh the clubs list by triggering a page reload or context refresh
+      // Switch to the newly created club and reload
+      setSelectedClubId(data.club.id);
       window.location.reload();
     } catch (error) {
       toast({

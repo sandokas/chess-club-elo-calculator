@@ -16,6 +16,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { useToast } from "../../hooks/use-toast";
 import { tournamentCreateSchema, type TournamentCreateInput } from "../../lib/schemas";
+import { getCurrentDateTime } from "../../lib/date-utils";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -44,12 +45,18 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
   const onSubmit = async (data: TournamentCreateInput) => {
     setIsSubmitting(true);
     try {
+      // If no start date is provided, use current date/time
+      const submissionData = {
+        ...data,
+        startsOn: data.startsOn || getCurrentDateTime(),
+      };
+
       const response = await fetch(`${apiBaseUrl}/clubs/${clubId}/tournaments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify(submissionData),
       });
 
       if (!response.ok) {

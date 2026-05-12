@@ -53,11 +53,7 @@ export async function loadPlayersList(
   club?: { id: string }
 ): Promise<PlayersListData> {
   if (!club) {
-    const clubsPayload = await fetchJson<{ clubs: { id: string }[] }>("/clubs", signal);
-    club = clubsPayload.clubs[0];
-    if (!club) {
-      throw new Error("No clubs found in the database.");
-    }
+    throw new Error("No club selected. Please select a club from the dropdown.");
   }
 
   const params = new URLSearchParams({
