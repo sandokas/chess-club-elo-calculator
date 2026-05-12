@@ -72,10 +72,7 @@ chess-club/
 ## Packages
 
 ### `@chess-club/config`
-**Purpose**: Shared configuration across packages
-
-### `@chess-club/core`
-**Purpose**: Core business logic shared between CLI and API
+**Purpose**: Shared configuration across packages (env validation, rating config single source of truth)
 
 ### `@chess-club/db`
 **Purpose**: Database schema, migrations, and client

@@ -1,6 +1,7 @@
 import cors from "@fastify/cors";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createPool } from "@chess-club/db";
+import { ratingConfig } from "@chess-club/config";
 import { registerHealthRoutes, type HealthOptions } from "./routes/health.js";
 import { registerPlayerRoutes } from "./routes/players.js";
 import { asHttpError, createErrorResponse } from "./lib/errors.js";
@@ -1073,13 +1074,20 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       const playerId = playerResult.rows[0].id;
 
-      // Create player ratings
+      // Create player ratings using the single rating config source of truth.
       await pool.query(
         `
           INSERT INTO player_ratings (player_id, club_id, elo, glicko_rating, glicko_rd, glicko_vol, games_played)
-          VALUES ($1, $2, 1200, 1500, 350, 0.06, 0)
+          VALUES ($1, $2, $3, $4, $5, $6, 0)
         `,
-        [playerId, tournament.club_id]
+        [
+          playerId,
+          tournament.club_id,
+          ratingConfig.defaultElo,
+          ratingConfig.g2DefaultRating,
+          ratingConfig.g2DefaultRd,
+          ratingConfig.g2DefaultVol
+        ]
       );
 
       // Add to tournament
@@ -1687,8 +1695,16 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
           ratingsMap.set(row.player_id, row);
         }
 
-        const whiteRating = ratingsMap.get(match.white_player_id) || { elo: 1200, glicko_rating: 1500, glicko_rd: 350, glicko_vol: 0.06, games_played: 0, last_game_date: null };
-        const blackRating = match.black_player_id ? ratingsMap.get(match.black_player_id) || { elo: 1200, glicko_rating: 1500, glicko_rd: 350, glicko_vol: 0.06, games_played: 0, last_game_date: null } : null;
+        const defaultRatingRow = {
+          elo: ratingConfig.defaultElo,
+          glicko_rating: ratingConfig.g2DefaultRating,
+          glicko_rd: ratingConfig.g2DefaultRd,
+          glicko_vol: ratingConfig.g2DefaultVol,
+          games_played: 0,
+          last_game_date: null as string | null
+        };
+        const whiteRating = ratingsMap.get(match.white_player_id) || defaultRatingRow;
+        const blackRating = match.black_player_id ? ratingsMap.get(match.black_player_id) || defaultRatingRow : null;
 
         const whiteProfile: RatingProfile = {
           elo: whiteRating.elo,

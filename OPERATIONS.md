@@ -57,9 +57,10 @@ This document outlines operational rules and conventions for the Chess Club proj
 - **Database**: PostgreSQL via Docker
 
 **Packages**:
-- `@chess-club/config` - Shared configuration
-- `@chess-club/core` - Core business logic (Elo, Glicko-2 ratings)
+- `@chess-club/config` - Shared configuration (env + rating config single source of truth)
 - `@chess-club/db` - Database schema and migrations
+
+> Rating logic (Elo, Glicko-2) lives in `apps/api/src/lib/ratings/`. Defaults come from `@chess-club/config` (see `AGENTS.md`).
 
 **Database Access**:
 - API uses direct PostgreSQL queries via connection pooling

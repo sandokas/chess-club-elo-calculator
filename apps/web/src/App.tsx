@@ -1213,7 +1213,12 @@ function TournamentDetailPage() {
                         const allResultsIn = state.data.matches.every(m => m.result !== null);
                         // Check if there are more rounds to generate
                         const currentRoundCount = [...new Set(state.data.matches.map(m => m.roundNumber))].length;
-                        const canGenerateMore = !state.data.tournament.totalRounds || currentRoundCount < state.data.tournament.totalRounds;
+                        // If totalRounds not set, use Swiss suggestion: ceil(log2(playerCount)).
+                        const effectiveTotalRounds = state.data.tournament.totalRounds
+                          || (state.data.tournament.playerCount > 0
+                            ? Math.ceil(Math.log2(state.data.tournament.playerCount))
+                            : 0);
+                        const canGenerateMore = effectiveTotalRounds === 0 || currentRoundCount < effectiveTotalRounds;
                         
                         if (state.data.tournament.status === "active" && allResultsIn) {
                           if (canGenerateMore) {
