@@ -321,7 +321,8 @@ function generateSubsequentRoundPairings(
   // Pair groups top to bottom with downfloater propagation.
   let downfloaters: Player[] = [];
   const paired = new Set<string>();
-  const groupMatches: PairCandidate[] = [];
+  let groupMatches: PairCandidate[] = [];
+  let scoreGroupFailed = false;
 
   for (let g = 0; g < groups.length; g++) {
     let current = [...downfloaters, ...(groups[g] ?? [])];
@@ -331,8 +332,6 @@ function generateSubsequentRoundPairings(
 
     // If odd, pick a downfloater: the lowest-ranked player in this combined group.
     if (current.length % 2 !== 0) {
-      // Try to choose a downfloater that doesn't break pairing for this group.
-      // Default heuristic: the last (lowest-ranked) player floats down.
       const floater = current[current.length - 1]!;
       current = current.filter((p) => p.id !== floater.id);
       downfloaters = [floater];
@@ -340,34 +339,39 @@ function generateSubsequentRoundPairings(
 
     const pairs = pairGroup(current, paired);
     if (!pairs) {
-      // Pairing failed even after exhaustive search; fall back: float more players down.
-      // As a last resort, accept the original S1/S2 split (best effort).
-      const fallback = pairGroupAllowRepeats(current, paired);
-      for (const pair of fallback) {
-        groupMatches.push(pair);
-        paired.add(pair.whiteId);
-        paired.add(pair.blackId);
-      }
-    } else {
-      for (const pair of pairs) {
-        groupMatches.push(pair);
-        paired.add(pair.whiteId);
-        paired.add(pair.blackId);
-      }
+      scoreGroupFailed = true;
+      break;
     }
-  }
-
-  // Any remaining downfloater means there's an odd leftover that couldn't pair;
-  // pair them with whatever single player remains (shouldn't happen if bye handling is right).
-  if (downfloaters.length > 0) {
-    const leftover = master.find(
-      (p) => !paired.has(p.id) && !downfloaters.some((d) => d.id === p.id)
-    );
-    if (leftover && downfloaters[0]) {
-      const pair = decideColors(downfloaters[0]!, leftover);
+    for (const pair of pairs) {
       groupMatches.push(pair);
       paired.add(pair.whiteId);
       paired.add(pair.blackId);
+    }
+  }
+
+  // If score-group pairing failed OR there are leftover downfloaters, fall back to a
+  // global backtracking pairer over ALL unpaired players. This avoids repeat pairings
+  // by exploring cross-group exchanges that the score-group method can't see.
+  if (scoreGroupFailed || downfloaters.length > 0) {
+    const globalPairs = pairAllBacktrack(master);
+    if (globalPairs) {
+      groupMatches = globalPairs;
+      paired.clear();
+      for (const pair of globalPairs) {
+        paired.add(pair.whiteId);
+        paired.add(pair.blackId);
+      }
+    } else if (downfloaters.length > 0) {
+      // Last resort: pair the leftover with any remaining player (may repeat).
+      const leftover = master.find(
+        (p) => !paired.has(p.id) && !downfloaters.some((d) => d.id === p.id)
+      );
+      if (leftover && downfloaters[0]) {
+        const pair = decideColors(downfloaters[0]!, leftover);
+        groupMatches.push(pair);
+        paired.add(pair.whiteId);
+        paired.add(pair.blackId);
+      }
     }
   }
 
@@ -440,6 +444,45 @@ function pairGroup(
   }
 
   return null;
+}
+
+/**
+ * Global backtracking pairer: tries to pair all players in master order, picking the
+ * closest valid partner (by master rank) and backtracking on dead-ends. Guarantees no
+ * repeats and respects absolute color rules whenever a valid pairing exists.
+ */
+function pairAllBacktrack(master: Player[]): PairCandidate[] | null {
+  const used = new Set<string>();
+  const pairs: PairCandidate[] = [];
+
+  function backtrack(startIdx: number): boolean {
+    // Find next unpaired player in master order.
+    let i = startIdx;
+    while (i < master.length && used.has(master[i]!.id)) i++;
+    if (i >= master.length) return true;
+
+    const a = master[i]!;
+    // Try partners in master order (closest score first).
+    for (let j = i + 1; j < master.length; j++) {
+      const b = master[j]!;
+      if (used.has(b.id)) continue;
+      if (a.opponents.has(b.id)) continue;
+      if (!colorPairingAllowed(a, b)) continue;
+
+      used.add(a.id);
+      used.add(b.id);
+      pairs.push(decideColors(a, b));
+
+      if (backtrack(i + 1)) return true;
+
+      pairs.pop();
+      used.delete(a.id);
+      used.delete(b.id);
+    }
+    return false;
+  }
+
+  return backtrack(0) ? pairs : null;
 }
 
 function pairGroupAllowRepeats(

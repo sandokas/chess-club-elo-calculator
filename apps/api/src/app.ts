@@ -462,10 +462,9 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       // Validate: only one tournament can be ongoing at a time
       const ongoingTournamentResult = await pool.query(
-        `SELECT id FROM tournaments WHERE club_id = $1 AND status IN ('draft', 'ongoing')`,
+        `SELECT id FROM tournaments WHERE club_id = $1 AND status IN ('draft', 'active')`,
         [request.params.clubId]
       );
-
       if (ongoingTournamentResult.rows.length > 0) {
         return reply.status(400).send({
           error: "ValidationError",

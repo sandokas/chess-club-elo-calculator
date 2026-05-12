@@ -1018,13 +1018,6 @@ function TournamentDetailPage() {
                 </>
               ) : (
                 <>
-                  <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Tournament summary">
-                    <StatCard label="Status" value={state.data.tournament.status} />
-                    <StatCard label="Players" value={state.data.tournament.playerCount} />
-                    <StatCard label="Matches" value={state.data.tournament.matchCount} />
-                    <StatCard label="Start date" value={formatDate(state.data.tournament.startsOn)} />
-                  </section>
-
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                     <Card>
                       <CardHeader>
