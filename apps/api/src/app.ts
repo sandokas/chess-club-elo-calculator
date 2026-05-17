@@ -6,7 +6,14 @@ import { registerHealthRoutes, type HealthOptions } from "./routes/health.js";
 import { registerPlayerRoutes } from "./routes/players.js";
 import { asHttpError, createErrorResponse } from "./lib/errors.js";
 import { generateSwissPairings } from "./lib/swiss-pairing.js";
-import { recomputeRatings, applyRatedMatch, type MatchInput, type RatingProfile } from "./lib/ratings/ratings.js";
+import { recomputeRatings, applyRatedMatch, type MatchInput } from "./lib/ratings/ratings.js";
+import {
+  rowToRatingProfile,
+  writeRatingProfile,
+  writeMatchAudit,
+  clearMatchAudit,
+  type PlayerRatingsRow
+} from "./lib/ratings/persistence.js";
 
 export type AppOptions = {
   databasePing?: () => Promise<void>;
@@ -239,7 +246,10 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       const playerIds = playersResult.rows.map(row => row.id);
 
-      // Fetch all completed real matches for the club (exclude byes)
+      // Fetch all completed real matches for the club (exclude byes).
+      // Canonical ordering matches `scripts/backfill-rounds.sql`: chronological
+      // by played_on, then original Python sequence (legacy_id) for migrated
+      // rows, then created_at, then UUIDv7 id for tie-break.
       const matchesResult = await pool.query(
         `
           SELECT
@@ -252,7 +262,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
           WHERE m.club_id = $1
             AND m.result IS NOT NULL
             AND m.black_player_id IS NOT NULL
-          ORDER BY m.played_on ASC, m.id ASC
+          ORDER BY m.played_on ASC, m.legacy_id ASC NULLS LAST, m.created_at ASC, m.id ASC
         `,
         [request.params.clubId]
       );
@@ -275,80 +285,14 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
       // Recompute ratings using the core library
       const { profiles, audits } = recomputeRatings(playerIds, matches);
 
-      // Update player ratings in the database
+      // Persist via the shared helpers — same code path the per-match handler uses.
       let updatedCount = 0;
       for (const [playerId, profile] of profiles.entries()) {
-        await pool.query(
-          `
-            UPDATE player_ratings
-            SET
-              elo = $1,
-              glicko_rating = $2,
-              glicko_rd = $3,
-              glicko_vol = $4,
-              games_played = $5,
-              last_game_date = $6,
-              updated_at = NOW()
-            WHERE player_id = $7
-          `,
-          [
-            profile.elo,
-            profile.glicko.rating,
-            profile.glicko.rd,
-            profile.glicko.vol,
-            profile.gamesPlayed,
-            profile.lastGameDate,
-            playerId
-          ]
-        );
+        await writeRatingProfile(pool, String(playerId), profile);
         updatedCount++;
       }
-
-      // Update match rating audits
       for (const audit of audits) {
-        await pool.query(
-          `
-            UPDATE matches
-            SET
-              white_elo_before = $1,
-              white_elo_after = $2,
-              black_elo_before = $3,
-              black_elo_after = $4,
-              white_glicko_rating_before = $5,
-              white_glicko_rating_after = $6,
-              white_glicko_rd_before = $7,
-              white_glicko_rd_after = $8,
-              white_glicko_vol_before = $9,
-              white_glicko_vol_after = $10,
-              black_glicko_rating_before = $11,
-              black_glicko_rating_after = $12,
-              black_glicko_rd_before = $13,
-              black_glicko_rd_after = $14,
-              black_glicko_vol_before = $15,
-              black_glicko_vol_after = $16,
-              updated_at = NOW()
-            WHERE id = $17
-          `,
-          [
-            audit.whiteEloBefore,
-            audit.whiteEloAfter,
-            audit.blackEloBefore,
-            audit.blackEloAfter,
-            audit.whiteGlickoBefore.rating,
-            audit.whiteGlickoAfter.rating,
-            audit.whiteGlickoBefore.rd,
-            audit.whiteGlickoAfter.rd,
-            audit.whiteGlickoBefore.vol,
-            audit.whiteGlickoAfter.vol,
-            audit.blackGlickoBefore?.rating || null,
-            audit.blackGlickoAfter?.rating || null,
-            audit.blackGlickoBefore?.rd || null,
-            audit.blackGlickoAfter?.rd || null,
-            audit.blackGlickoBefore?.vol || null,
-            audit.blackGlickoAfter?.vol || null,
-            audit.matchId
-          ]
-        );
+        await writeMatchAudit(pool, String(audit.matchId), audit);
       }
 
       return reply.status(200).send({
@@ -1666,20 +1610,22 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       // Handle rating updates
       if (result === null) {
-        // Undo: revert player ratings to stored "before" values from this match
+        // Undo: revert player ratings to the stored "before" values from this
+        // match. We still go through `writeRatingProfile` so that the row
+        // shape (and any future extra fields) stay in one canonical place.
         const matchAuditResult = await pool.query(
-          `SELECT white_elo_before, black_elo_before, white_glicko_rating_before, white_glicko_rd_before, white_glicko_vol_before,
+          `SELECT white_elo_before, black_elo_before,
+                  white_glicko_rating_before, white_glicko_rd_before, white_glicko_vol_before,
                   black_glicko_rating_before, black_glicko_rd_before, black_glicko_vol_before
-           FROM matches m
-           WHERE m.id = $1`,
+           FROM matches WHERE id = $1`,
           [request.params.id]
         );
 
         const matchAudit = matchAuditResult.rows[0];
 
         if (matchAudit && matchAudit.white_elo_before !== null) {
-          // Helper: derive last_game_date from MAX(played_on) of remaining real games for a player.
-          const computeLastGameDate = async (playerId: string): Promise<string | null> => {
+          // Derive last_game_date from the player's now-most-recent real game.
+          const computeLastGameDate = async (playerId: string): Promise<Date | null> => {
             const r = await pool.query(
               `SELECT MAX(played_on) AS "lastDate"
                FROM matches
@@ -1689,234 +1635,87 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
                  AND id <> $2`,
               [playerId, request.params.id]
             );
-            return r.rows[0]?.lastDate || null;
+            return r.rows[0]?.lastDate ?? null;
           };
 
-          const whiteLastDate = await computeLastGameDate(match.white_player_id);
-
-          // Revert white player ratings, decrement games_played, restore last_game_date
-          await pool.query(
-            `
-              UPDATE player_ratings
-              SET
-                elo = $1,
-                glicko_rating = $2,
-                glicko_rd = $3,
-                glicko_vol = $4,
-                games_played = GREATEST(games_played - 1, 0),
-                last_game_date = $5,
-                updated_at = NOW()
-              WHERE player_id = $6
-            `,
-            [
-              matchAudit.white_elo_before,
-              matchAudit.white_glicko_rating_before,
-              matchAudit.white_glicko_rd_before,
-              matchAudit.white_glicko_vol_before,
-              whiteLastDate,
-              match.white_player_id
-            ]
+          // Read current rows to preserve games_played-decrement semantics.
+          const currentRatings = await pool.query(
+            `SELECT player_id, elo, glicko_rating, glicko_rd, glicko_vol, games_played, last_game_date
+             FROM player_ratings WHERE player_id = ANY($1)`,
+            [[match.white_player_id, match.black_player_id].filter(Boolean)]
           );
+          const byId = new Map<string, PlayerRatingsRow>();
+          for (const row of currentRatings.rows) byId.set(row.player_id, row);
 
-          // Revert black player ratings (only if there's a real opponent, not a bye)
-          if (matchAudit.black_elo_before !== null && match.black_player_id) {
-            const blackLastDate = await computeLastGameDate(match.black_player_id);
-            await pool.query(
-              `
-                UPDATE player_ratings
-                SET
-                  elo = $1,
-                  glicko_rating = $2,
-                  glicko_rd = $3,
-                  glicko_vol = $4,
-                  games_played = GREATEST(games_played - 1, 0),
-                  last_game_date = $5,
-                  updated_at = NOW()
-                WHERE player_id = $6
-              `,
-              [
-                matchAudit.black_elo_before,
-                matchAudit.black_glicko_rating_before,
-                matchAudit.black_glicko_rd_before,
-                matchAudit.black_glicko_vol_before,
-                blackLastDate,
-                match.black_player_id
-              ]
-            );
+          const whiteCurrent = byId.get(match.white_player_id);
+          if (whiteCurrent) {
+            const reverted = rowToRatingProfile({
+              ...whiteCurrent,
+              elo: matchAudit.white_elo_before,
+              glicko_rating: matchAudit.white_glicko_rating_before,
+              glicko_rd: matchAudit.white_glicko_rd_before,
+              glicko_vol: matchAudit.white_glicko_vol_before,
+              games_played: Math.max(whiteCurrent.games_played - 1, 0),
+              last_game_date: await computeLastGameDate(match.white_player_id)
+            });
+            await writeRatingProfile(pool, match.white_player_id, reverted);
           }
 
-          // Clear rating audit fields
-          await pool.query(
-            `
-              UPDATE matches
-              SET
-                white_elo_before = NULL,
-                white_elo_after = NULL,
-                black_elo_before = NULL,
-                black_elo_after = NULL,
-                white_glicko_rating_before = NULL,
-                white_glicko_rating_after = NULL,
-                white_glicko_rd_before = NULL,
-                white_glicko_rd_after = NULL,
-                white_glicko_vol_before = NULL,
-                white_glicko_vol_after = NULL,
-                black_glicko_rating_before = NULL,
-                black_glicko_rating_after = NULL,
-                black_glicko_rd_before = NULL,
-                black_glicko_rd_after = NULL,
-                black_glicko_vol_before = NULL,
-                black_glicko_vol_after = NULL
-              WHERE id = $1
-            `,
-            [request.params.id]
-          );
+          if (matchAudit.black_elo_before !== null && match.black_player_id) {
+            const blackCurrent = byId.get(match.black_player_id);
+            if (blackCurrent) {
+              const reverted = rowToRatingProfile({
+                ...blackCurrent,
+                elo: matchAudit.black_elo_before,
+                glicko_rating: matchAudit.black_glicko_rating_before,
+                glicko_rd: matchAudit.black_glicko_rd_before,
+                glicko_vol: matchAudit.black_glicko_vol_before,
+                games_played: Math.max(blackCurrent.games_played - 1, 0),
+                last_game_date: await computeLastGameDate(match.black_player_id)
+              });
+              await writeRatingProfile(pool, match.black_player_id, reverted);
+            }
+          }
+
+          await clearMatchAudit(pool, request.params.id);
         }
       } else {
-        // Set new result: calculate ratings and store "before" and "after" values
-        // Get current player ratings
+        // Set new result: load current ratings, fold this match in, persist.
         const ratingsResult = await pool.query(
           `SELECT player_id, elo, glicko_rating, glicko_rd, glicko_vol, games_played, last_game_date
            FROM player_ratings WHERE player_id = ANY($1)`,
-          [[match.white_player_id, match.black_player_id]]
+          [[match.white_player_id, match.black_player_id].filter(Boolean)]
         );
 
-        const ratingsMap = new Map();
-        for (const row of ratingsResult.rows) {
-          ratingsMap.set(row.player_id, row);
-        }
+        const ratingsMap = new Map<string, PlayerRatingsRow>();
+        for (const row of ratingsResult.rows) ratingsMap.set(row.player_id, row);
 
-        const defaultRatingRow = {
+        // Fallback row for players missing a `player_ratings` entry — drawn
+        // from the same single source of truth used everywhere else.
+        const defaultRatingRow: PlayerRatingsRow = {
           elo: ratingConfig.defaultElo,
           glicko_rating: ratingConfig.g2DefaultRating,
           glicko_rd: ratingConfig.g2DefaultRd,
           glicko_vol: ratingConfig.g2DefaultVol,
           games_played: 0,
-          last_game_date: null as string | null
-        };
-        const whiteRating = ratingsMap.get(match.white_player_id) || defaultRatingRow;
-        const blackRating = match.black_player_id ? ratingsMap.get(match.black_player_id) || defaultRatingRow : null;
-
-        const whiteProfile: RatingProfile = {
-          elo: whiteRating.elo,
-          glicko: {
-            rating: whiteRating.glicko_rating,
-            rd: whiteRating.glicko_rd,
-            vol: whiteRating.glicko_vol,
-            lastGameDate: whiteRating.last_game_date
-          },
-          gamesPlayed: whiteRating.games_played,
-          lastGameDate: whiteRating.last_game_date
+          last_game_date: null
         };
 
-        const blackProfile: RatingProfile | null = blackRating ? {
-          elo: blackRating.elo,
-          glicko: {
-            rating: blackRating.glicko_rating,
-            rd: blackRating.glicko_rd,
-            vol: blackRating.glicko_vol,
-            lastGameDate: blackRating.last_game_date
-          },
-          gamesPlayed: blackRating.games_played,
-          lastGameDate: blackRating.last_game_date
-        } : null;
+        const whiteRow = ratingsMap.get(match.white_player_id) ?? defaultRatingRow;
+        const blackRow = match.black_player_id
+          ? (ratingsMap.get(match.black_player_id) ?? defaultRatingRow)
+          : null;
+
+        const whiteProfile = rowToRatingProfile(whiteRow);
+        const blackProfile = blackRow ? rowToRatingProfile(blackRow) : null;
 
         const applied = applyRatedMatch(whiteProfile, blackProfile, result, match.played_on);
 
-        // Update white player ratings
-        await pool.query(
-          `
-            UPDATE player_ratings
-            SET
-              elo = $1,
-              glicko_rating = $2,
-              glicko_rd = $3,
-              glicko_vol = $4,
-              games_played = $5,
-              last_game_date = $6,
-              updated_at = NOW()
-            WHERE player_id = $7
-          `,
-          [
-            applied.white.elo,
-            applied.white.glicko.rating,
-            applied.white.glicko.rd,
-            applied.white.glicko.vol,
-            applied.white.gamesPlayed,
-            applied.white.lastGameDate,
-            match.white_player_id
-          ]
-        );
-
-        // Update black player ratings (only if there's a real opponent, not a bye)
-        if (applied.black) {
-          await pool.query(
-            `
-              UPDATE player_ratings
-              SET
-                elo = $1,
-                glicko_rating = $2,
-                glicko_rd = $3,
-                glicko_vol = $4,
-                games_played = $5,
-                last_game_date = $6,
-                updated_at = NOW()
-              WHERE player_id = $7
-            `,
-            [
-              applied.black.elo,
-              applied.black.glicko.rating,
-              applied.black.glicko.rd,
-              applied.black.glicko.vol,
-              applied.black.gamesPlayed,
-              applied.black.lastGameDate,
-              match.black_player_id
-            ]
-          );
+        await writeRatingProfile(pool, match.white_player_id, applied.white);
+        if (applied.black && match.black_player_id) {
+          await writeRatingProfile(pool, match.black_player_id, applied.black);
         }
-
-        // Update match audit fields
-        await pool.query(
-          `
-            UPDATE matches
-            SET
-              white_elo_before = $1,
-              white_elo_after = $2,
-              black_elo_before = $3,
-              black_elo_after = $4,
-              white_glicko_rating_before = $5,
-              white_glicko_rating_after = $6,
-              white_glicko_rd_before = $7,
-              white_glicko_rd_after = $8,
-              white_glicko_vol_before = $9,
-              white_glicko_vol_after = $10,
-              black_glicko_rating_before = $11,
-              black_glicko_rating_after = $12,
-              black_glicko_rd_before = $13,
-              black_glicko_rd_after = $14,
-              black_glicko_vol_before = $15,
-              black_glicko_vol_after = $16
-            WHERE id = $17
-          `,
-          [
-            applied.audit.whiteEloBefore,
-            applied.audit.whiteEloAfter,
-            applied.audit.blackEloBefore,
-            applied.audit.blackEloAfter,
-            applied.audit.whiteGlickoBefore.rating,
-            applied.audit.whiteGlickoAfter.rating,
-            applied.audit.whiteGlickoBefore.rd,
-            applied.audit.whiteGlickoAfter.rd,
-            applied.audit.whiteGlickoBefore.vol,
-            applied.audit.whiteGlickoAfter.vol,
-            applied.audit.blackGlickoBefore?.rating || null,
-            applied.audit.blackGlickoAfter?.rating || null,
-            applied.audit.blackGlickoBefore?.rd || null,
-            applied.audit.blackGlickoAfter?.rd || null,
-            applied.audit.blackGlickoBefore?.vol || null,
-            applied.audit.blackGlickoAfter?.vol || null,
-            request.params.id
-          ]
-        );
+        await writeMatchAudit(pool, request.params.id, applied.audit);
       }
 
       return reply.status(200).send({ match: updatedMatchResult.rows[0] });

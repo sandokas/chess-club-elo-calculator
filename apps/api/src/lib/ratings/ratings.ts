@@ -14,8 +14,22 @@ export type MatchInput = {
   whitePlayerId: string | number;
   blackPlayerId: string | number | null;
   result: number | null;
-  date: string;
+  // `Date` (e.g. directly from a pg `date` column) or an ISO-like string.
+  date: string | Date;
 };
+
+/**
+ * Normalize a MatchInput.date (which may be a JS Date — as pg returns for
+ * `date` columns — or a string) to a millisecond epoch usable for ordering.
+ * `String(Date)` cannot be used here because it produces a weekday-prefixed
+ * value like `"Sun Jan 18 2026..."` that sorts alphabetically, not
+ * chronologically, silently scrambling match order.
+ */
+function matchDateMillis(date: string | Date): number {
+  if (date instanceof Date) return date.getTime();
+  const parsed = Date.parse(date);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
 
 export type MatchRatingAudit = {
   matchId?: string | number;
@@ -153,7 +167,11 @@ export function recomputeRatings(
   }
 
   const audits: MatchRatingAudit[] = [];
-  const sortedMatches = [...matches].sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
+  const sortedMatches = [...matches].sort((a, b) => {
+    const timeDiff = matchDateMillis(a.date) - matchDateMillis(b.date);
+    if (timeDiff !== 0) return timeDiff;
+    return String(a.id).localeCompare(String(b.id));
+  });
 
   for (const match of sortedMatches) {
     if (match.result === null) {
