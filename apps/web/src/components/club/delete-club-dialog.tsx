@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiBaseUrl } from "@/lib/api-base.js";
 
 type DeleteClubDialogProps = {
   clubId: string;
@@ -40,7 +41,7 @@ export function DeleteClubDialog({ clubId, clubName, open, onOpenChange, onDelet
     setIsDeleting(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/clubs/${clubId}`, {
+      const response = await fetch(`${apiBaseUrl}/clubs/${clubId}`, {
         method: "DELETE",
       });
 

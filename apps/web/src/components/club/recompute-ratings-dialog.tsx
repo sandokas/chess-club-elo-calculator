@@ -11,6 +11,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { apiBaseUrl } from "@/lib/api-base.js";
 
 type RecomputeRatingsDialogProps = {
   clubId: string;
@@ -29,7 +30,7 @@ export function RecomputeRatingsDialog({ clubId, open, onOpenChange, onRecompute
     setResult(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/clubs/${clubId}/ratings/recompute`, {
+      const response = await fetch(`${apiBaseUrl}/clubs/${clubId}/ratings/recompute`, {
         method: "POST",
       });
 

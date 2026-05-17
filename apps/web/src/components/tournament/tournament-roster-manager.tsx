@@ -14,8 +14,7 @@ import { useToast } from "../../hooks/use-toast";
 import { Badge } from "../ui/badge";
 import type { Tournament } from "../../lib/types.js";
 import { cn } from "../../lib/utils.js";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import { apiBaseUrl } from "../../lib/api-base.js";
 
 type TournamentPlayer = {
   playerId: string;
@@ -66,8 +65,17 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
 
   useEffect(() => {
     loadRoster();
-    loadClubPlayers();
+    loadClubPlayers("");
   }, [tournament.id]);
+
+  // Debounced server-side name search. Avoids capping by page size so any
+  // player in the club is findable regardless of total roster size.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      loadClubPlayers(searchQuery.trim());
+    }, 200);
+    return () => clearTimeout(handle);
+  }, [searchQuery, tournament.id]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -97,14 +105,15 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
     }
   };
 
-  const loadClubPlayers = async () => {
+  const loadClubPlayers = async (nameQuery: string) => {
     try {
       const clubId = tournament.clubId;
       const params = new URLSearchParams({
         sortBy: "gamesPlayed",
         sortOrder: "desc",
-        limit: "100"
+        limit: "50"
       });
+      if (nameQuery) params.set("name", nameQuery);
       const playersResponse = await fetch(`${apiBaseUrl}/clubs/${clubId}/players?${params.toString()}`);
       if (!playersResponse.ok) return;
       const playersData = await playersResponse.json();
@@ -133,7 +142,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
       });
       addPlayerForm.reset();
       loadRoster();
-      loadClubPlayers();
+      loadClubPlayers(searchQuery.trim());
       onUpdated();
     } catch (error) {
       toast({
@@ -165,7 +174,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
       });
       createPlayerForm.reset();
       loadRoster();
-      loadClubPlayers();
+      loadClubPlayers(searchQuery.trim());
       onUpdated();
     } catch (error) {
       toast({
@@ -190,7 +199,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
         description: "Player has been removed from the tournament.",
       });
       loadRoster();
-      loadClubPlayers();
+      loadClubPlayers(searchQuery.trim());
       onUpdated();
     } catch (error) {
       toast({
@@ -216,9 +225,9 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
       return a.displayName.localeCompare(b.displayName);
     });
 
-  const filteredPlayers = availablePlayers.filter((player) =>
-    player.displayName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Server-side search already filters by `?name=`; only filter out players
+  // already on the roster client-side.
+  const filteredPlayers = availablePlayers;
 
   const handleSelectPlayer = (playerId: string) => {
     addPlayerForm.setValue("playerId", playerId);

@@ -11,8 +11,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { useToast } from "../../hooks/use-toast";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import { apiBaseUrl } from "../../lib/api-base.js";
 
 interface Match {
   id: string;

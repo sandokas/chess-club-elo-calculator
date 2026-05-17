@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { DeleteClubDialog } from "./delete-club-dialog";
+import { apiBaseUrl } from "@/lib/api-base.js";
 
 type EditClubDialogProps = {
   clubId: string;
@@ -42,7 +43,7 @@ export function EditClubDialog({ clubId, open, onOpenChange, currentClub, onUpda
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/clubs/${clubId}`, {
+      const response = await fetch(`${apiBaseUrl}/clubs/${clubId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

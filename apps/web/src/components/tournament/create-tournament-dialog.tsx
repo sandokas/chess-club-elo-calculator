@@ -17,8 +17,7 @@ import { Label } from "../ui/label";
 import { useToast } from "../../hooks/use-toast";
 import { tournamentCreateSchema, type TournamentCreateInput } from "../../lib/schemas";
 import { getCurrentDateTime } from "../../lib/date-utils";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import { apiBaseUrl } from "../../lib/api-base.js";
 
 interface CreateTournamentDialogProps {
   clubId: string;

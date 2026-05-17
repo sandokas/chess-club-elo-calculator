@@ -16,8 +16,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { useToast } from "../../hooks/use-toast";
 import { z } from "zod";
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+import { apiBaseUrl } from "../../lib/api-base.js";
 
 const createMatchSchema = z.object({
   whitePlayerId: z.string().min(1, "White player is required"),

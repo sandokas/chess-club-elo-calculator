@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useClub } from "@/contexts/club-context.js";
+import { apiBaseUrl } from "@/lib/api-base.js";
 
 type CreateClubDialogProps = {
   open: boolean;
@@ -36,7 +37,7 @@ export function CreateClubDialog({ open, onOpenChange }: CreateClubDialogProps) 
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/clubs`, {
+      const response = await fetch(`${apiBaseUrl}/clubs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

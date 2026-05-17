@@ -29,6 +29,7 @@ import { PlayersListPage } from "./pages/players-list.js";
 import { PlayerDetailPage } from "./pages/player-detail.js";
 import { formatRating, formatDate, formatCompactResult } from "./lib/formatters.js";
 import { useClub } from "./contexts/club-context.js";
+import { apiBaseUrl } from "./lib/api-base.js";
 
 type LoadState =
   | { status: "loading" }
@@ -99,8 +100,6 @@ type AdminData = {
   totalTournaments: number;
   leaderboard: LeaderboardEntry[];
 };
-
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
 export function App() {
   return (
