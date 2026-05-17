@@ -474,15 +474,21 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         });
       }
 
+      // pairingMethod is only relevant for Swiss tournaments
+      const finalFormat = format || "manual";
+      const finalPairingMethod = (finalFormat === "swiss" && pairingMethod) ? pairingMethod : null;
+      
       const validPairingMethods = ["seeded_by_rating", "random"];
-      if (pairingMethod && !validPairingMethods.includes(pairingMethod)) {
+      if (finalFormat === "swiss" && pairingMethod && !validPairingMethods.includes(pairingMethod)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: `pairingMethod must be one of: ${validPairingMethods.join(", ")}`
         });
       }
 
-      if (totalRounds !== undefined && (totalRounds < 1 || totalRounds > 50)) {
+      // totalRounds is only relevant for Swiss tournaments
+      const finalTotalRounds = (finalFormat === "swiss" && totalRounds !== undefined) ? totalRounds : null;
+      if (finalFormat === "swiss" && totalRounds !== undefined && (totalRounds < 1 || totalRounds > 50)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "totalRounds must be between 1 and 50"
@@ -521,9 +527,9 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
           request.params.clubId,
           name.trim(),
           startsOn || null,
-          format || "manual",
-          totalRounds || null,
-          pairingMethod || "seeded_by_rating"
+          finalFormat,
+          finalTotalRounds,
+          finalPairingMethod
         ]
       );
 
@@ -798,7 +804,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
       }
 
       const currentResult = await pool.query(
-        `SELECT id, status, name, starts_on FROM tournaments WHERE id = $1`,
+        `SELECT id, status, name, starts_on, format FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
@@ -810,6 +816,14 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
       }
 
       const current = currentResult.rows[0];
+
+      // pairingMethod and totalRounds are only relevant for Swiss tournaments
+      if (current.format !== "swiss" && (pairingMethod !== undefined || totalRounds !== undefined)) {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "pairingMethod and totalRounds are only applicable to Swiss tournaments"
+        });
+      }
 
       if (current.status === "completed" && (name !== undefined || startsOn !== undefined)) {
         return reply.status(400).send({
@@ -1292,11 +1306,11 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
   });
 
   // Round management endpoints
-  app.post<{ Params: TournamentParams; Body: { startsOn?: string } }>("/tournaments/:id/rounds", async (request, reply) => {
+  app.post<{ Params: TournamentParams; Body: { startsOn?: string; number?: number } }>("/tournaments/:id/rounds", async (request, reply) => {
     const pool = createPool();
     try {
-      const { startsOn } = request.body;
-      
+      const { startsOn, number: requestedNumber } = request.body;
+
       // Get tournament details
       const tournamentResult = await pool.query(
         `SELECT id, status, format, club_id, pairing_method, total_rounds FROM tournaments WHERE id = $1`,
@@ -1312,6 +1326,49 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       const tournament = tournamentResult.rows[0];
 
+      // For manual tournaments, allow creating rounds without pairings
+      if (tournament.format === "manual") {
+        let roundNumber;
+        if (requestedNumber !== undefined) {
+          // Use requested number if provided
+          roundNumber = requestedNumber;
+          // Check if round number already exists
+          const existingRound = await pool.query(
+            `SELECT id FROM rounds WHERE tournament_id = $1 AND number = $2`,
+            [request.params.id, roundNumber]
+          );
+          if (existingRound.rows.length > 0) {
+            return reply.status(400).send({
+              error: "ValidationError",
+              message: `Round ${roundNumber} already exists`
+            });
+          }
+        } else {
+          // Auto-increment to next available number
+          const lastRoundResult = await pool.query(
+            `SELECT MAX(number) AS max_round FROM rounds WHERE tournament_id = $1`,
+            [request.params.id]
+          );
+          roundNumber = (lastRoundResult.rows[0].max_round || 0) + 1;
+        }
+
+        // Create round without pairings
+        const startsOnValue = startsOn ? new Date(startsOn).toISOString() : new Date().toISOString();
+        const roundResult = await pool.query(
+          `
+            INSERT INTO rounds (tournament_id, number, status, starts_on)
+            VALUES ($1, $2, 'scheduled', $3)
+            RETURNING id, number, starts_on AS "startsOn", status
+          `,
+          [request.params.id, roundNumber, startsOnValue]
+        );
+
+        return reply.status(201).send({
+          round: roundResult.rows[0]
+        });
+      }
+
+      // Swiss tournament logic (existing)
       if (tournament.format !== "swiss") {
         return reply.status(400).send({
           error: "ValidationError",
@@ -1863,6 +1920,121 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
       }
 
       return reply.status(200).send({ match: updatedMatchResult.rows[0] });
+    } finally {
+      await pool.end();
+    }
+  });
+
+  // Manual match creation endpoint for tournaments
+  app.post<{ Params: TournamentParams; Body: { whitePlayerId: string; blackPlayerId: string; playedOn: string; roundId?: string } }>("/tournaments/:id/matches", async (request, reply) => {
+    const pool = createPool();
+    try {
+      const { whitePlayerId, blackPlayerId, playedOn, roundId } = request.body;
+
+      if (!whitePlayerId || !blackPlayerId) {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "whitePlayerId and blackPlayerId are required"
+        });
+      }
+
+      if (whitePlayerId === blackPlayerId) {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "whitePlayerId and blackPlayerId must be different"
+        });
+      }
+
+      if (!playedOn || isNaN(Date.parse(playedOn))) {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "playedOn must be a valid date"
+        });
+      }
+
+      // Get tournament details
+      const tournamentResult = await pool.query(
+        `SELECT id, club_id, format FROM tournaments WHERE id = $1`,
+        [request.params.id]
+      );
+
+      if (tournamentResult.rows.length === 0) {
+        return reply.status(404).send({
+          error: "NotFound",
+          message: "Tournament not found"
+        });
+      }
+
+      const tournament = tournamentResult.rows[0];
+
+      // Validate both players belong to the tournament
+      const playersResult = await pool.query(
+        `SELECT player_id FROM tournament_players WHERE tournament_id = $1 AND player_id IN ($2, $3)`,
+        [request.params.id, whitePlayerId, blackPlayerId]
+      );
+
+      if (playersResult.rows.length !== 2) {
+        return reply.status(400).send({
+          error: "ValidationError",
+          message: "Both players must be registered in the tournament"
+        });
+      }
+
+      // Validate roundId if provided
+      let roundIdValue = null;
+      if (roundId) {
+        const roundResult = await pool.query(
+          `SELECT id FROM rounds WHERE id = $1 AND tournament_id = $2`,
+          [roundId, request.params.id]
+        );
+
+        if (roundResult.rows.length === 0) {
+          return reply.status(400).send({
+            error: "ValidationError",
+            message: "Round not found or does not belong to this tournament"
+          });
+        }
+        roundIdValue = roundId;
+      }
+
+      // Determine board number (if in a round, use max+1 from that round; otherwise use max+1 from tournament)
+      let boardNumber = 1;
+      if (roundIdValue) {
+        const maxBoardResult = await pool.query(
+          `SELECT COALESCE(MAX(board_number), 0) AS max_board FROM matches WHERE round_id = $1`,
+          [roundIdValue]
+        );
+        boardNumber = maxBoardResult.rows[0].max_board + 1;
+      } else {
+        const maxBoardResult = await pool.query(
+          `SELECT COALESCE(MAX(board_number), 0) AS max_board FROM matches WHERE tournament_id = $1 AND round_id IS NULL`,
+          [request.params.id]
+        );
+        boardNumber = maxBoardResult.rows[0].max_board + 1;
+      }
+
+      // Create match
+      const matchResult = await pool.query(
+        `
+          INSERT INTO matches (club_id, tournament_id, round_id, white_player_id, black_player_id, board_number, played_on)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING id, white_player_id AS "whitePlayerId", black_player_id AS "blackPlayerId", board_number AS "boardNumber", played_on AS "playedOn"
+        `,
+        [tournament.club_id, request.params.id, roundIdValue, whitePlayerId, blackPlayerId, boardNumber, playedOn]
+      );
+
+      // Update color counts
+      await pool.query(
+        `UPDATE tournament_players SET white_count = white_count + 1 WHERE tournament_id = $1 AND player_id = $2`,
+        [request.params.id, whitePlayerId]
+      );
+
+      await pool.query(
+        `UPDATE tournament_players SET black_count = black_count + 1 WHERE tournament_id = $1 AND player_id = $2`,
+        [request.params.id, blackPlayerId]
+      );
+
+      return reply.status(201).send({ match: matchResult.rows[0] });
     } finally {
       await pool.end();
     }

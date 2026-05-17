@@ -18,6 +18,7 @@ import { EditTournamentDialog } from "./components/tournament/edit-tournament-di
 import { CreateTournamentDialog } from "./components/tournament/create-tournament-dialog.js";
 import { TournamentRosterManager } from "./components/tournament/tournament-roster-manager.js";
 import { GenerateRoundDialog } from "./components/tournament/generate-round-dialog.js";
+import { CreateMatchDialog } from "./components/tournament/create-match-dialog.js";
 import { EditRoundStartDialog } from "./components/tournament/edit-round-start-dialog.js";
 import { EditPlayerDialog } from "./components/player/edit-player-dialog.js";
 import { EditClubDialog } from "./components/club/edit-club-dialog.js";
@@ -738,6 +739,7 @@ function TournamentDetailPage() {
   const [state, setState] = useState<TournamentDetailState>({ status: "loading" });
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+  const [createMatchDialogOpen, setCreateMatchDialogOpen] = useState(false);
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
   const [editRoundStartOpen, setEditRoundStartOpen] = useState(false);
   const [rounds, setRounds] = useState<any[]>([]);
@@ -1030,8 +1032,6 @@ function TournamentDetailPage() {
                                 <TableHead className="hidden sm:table-cell">D</TableHead>
                                 <TableHead className="hidden sm:table-cell">L</TableHead>
                                 <TableHead>Points</TableHead>
-                                <TableHead className="hidden sm:table-cell" title="Buchholz: sum of opponents' points">Buchholz</TableHead>
-                                <TableHead className="hidden md:table-cell" title="Sonneborn-Berger: sum of opponents' points weighted by your result">S-B</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1042,8 +1042,6 @@ function TournamentDetailPage() {
                                   <TableCell className="hidden sm:table-cell">{standing.draws}</TableCell>
                                   <TableCell className="hidden sm:table-cell">{standing.losses}</TableCell>
                                   <TableCell>{standing.points.toFixed(1)}</TableCell>
-                                  <TableCell className="hidden sm:table-cell text-muted-foreground">{standing.buchholz !== undefined ? standing.buchholz.toFixed(1) : "-"}</TableCell>
-                                  <TableCell className="hidden md:table-cell text-muted-foreground">{standing.sonnebornBerger !== undefined ? standing.sonnebornBerger.toFixed(1) : "-"}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -1206,32 +1204,42 @@ function TournamentDetailPage() {
                         </Button>
                       )}
                       {(() => {
-                        // Check if all matches have results
-                        const allResultsIn = state.data.matches.every(m => m.result !== null);
-                        // Check if there are more rounds to generate
-                        const currentRoundCount = [...new Set(state.data.matches.map(m => m.roundNumber))].length;
-                        // If totalRounds not set, use Swiss suggestion: ceil(log2(playerCount)).
-                        const effectiveTotalRounds = state.data.tournament.totalRounds
-                          || (state.data.tournament.playerCount > 0
-                            ? Math.ceil(Math.log2(state.data.tournament.playerCount))
-                            : 0);
-                        const canGenerateMore = effectiveTotalRounds === 0 || currentRoundCount < effectiveTotalRounds;
-                        
-                        if (state.data.tournament.status === "active" && allResultsIn) {
-                          if (canGenerateMore) {
-                            return (
-                              <Button size="sm" onClick={() => setGenerateDialogOpen(true)}>
-                                <Play className="h-4 w-4 mr-2" />
-                                Generate Round
-                              </Button>
-                            );
-                          } else {
-                            return (
-                              <Button size="sm" onClick={() => handleFinalizeTournament()}>
-                                <Trophy className="h-4 w-4 mr-2" />
-                                Finalize Tournament
-                              </Button>
-                            );
+                        // For manual tournaments, show Add Match button
+                        if (state.data.tournament.format === "manual" && state.data.tournament.status === "active") {
+                          return (
+                            <Button size="sm" onClick={() => setCreateMatchDialogOpen(true)}>
+                              <Plus className="h-4 w-4 mr-2" />
+                              Add Match
+                            </Button>
+                          );
+                        }
+
+                        // For Swiss tournaments, show Generate Round or Finalize button
+                        if (state.data.tournament.format === "swiss") {
+                          const allResultsIn = state.data.matches.every(m => m.result !== null);
+                          const currentRoundCount = [...new Set(state.data.matches.map(m => m.roundNumber))].length;
+                          const effectiveTotalRounds = state.data.tournament.totalRounds
+                            || (state.data.tournament.playerCount > 0
+                              ? Math.ceil(Math.log2(state.data.tournament.playerCount))
+                              : 0);
+                          const canGenerateMore = effectiveTotalRounds === 0 || currentRoundCount < effectiveTotalRounds;
+
+                          if (state.data.tournament.status === "active" && allResultsIn) {
+                            if (canGenerateMore) {
+                              return (
+                                <Button size="sm" onClick={() => setGenerateDialogOpen(true)}>
+                                  <Play className="h-4 w-4 mr-2" />
+                                  Generate Round
+                                </Button>
+                              );
+                            } else {
+                              return (
+                                <Button size="sm" onClick={() => handleFinalizeTournament()}>
+                                  <Trophy className="h-4 w-4 mr-2" />
+                                  Finalize Tournament
+                                </Button>
+                              );
+                            }
                           }
                         }
                         return null;
@@ -1243,12 +1251,12 @@ function TournamentDetailPage() {
                       <div className="flex flex-wrap gap-2">
                         {[...new Set(state.data.matches.map(m => m.roundNumber))].sort((a, b) => (a || 0) - (b || 0)).map(roundNum => (
                           <Button
-                            key={roundNum}
+                            key={roundNum ?? "no-round"}
                             variant={selectedRound === roundNum ? "default" : "outline"}
                             size="sm"
                             onClick={() => setSelectedRound(roundNum === selectedRound ? null : roundNum)}
                           >
-                            Round {roundNum}
+                            {roundNum === null ? "No Round" : `Round ${roundNum}`}
                           </Button>
                         ))}
                       </div>
@@ -1256,13 +1264,15 @@ function TournamentDetailPage() {
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm text-muted-foreground">
                           <div className="flex items-center gap-2">
                             {(() => {
+                              // Only show round start info for actual rounds, not "No Round"
+                              if (selectedRound === null) return null;
                               const roundMatches = state.data.matches.filter((m: Match) => m.roundNumber === selectedRound);
                               const roundStart = roundMatches[0]?.roundStart;
                               if (!roundStart) return 'Start time not set';
                               const date = new Date(roundStart);
                               return `Starts: ${date.toLocaleDateString()} ${date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
                             })()}
-                            {state.data.tournament.status === "active" && (
+                            {selectedRound !== null && state.data.tournament.status === "active" && (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1372,6 +1382,14 @@ function TournamentDetailPage() {
           open={generateDialogOpen}
           onOpenChange={setGenerateDialogOpen}
           onGenerated={handleSaved}
+        />
+      )}
+      {state.status === "ok" && id && (
+        <CreateMatchDialog
+          tournamentId={id}
+          open={createMatchDialogOpen}
+          onOpenChange={setCreateMatchDialogOpen}
+          onCreated={handleSaved}
         />
       )}
       {selectedRound !== null && state.status === "ok" && id && (

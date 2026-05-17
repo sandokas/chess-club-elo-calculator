@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Plus, Trash2, Loader2, UserPlus, Play, Search, X, Pencil } from "lucide-react";
 import { GenerateRoundDialog } from "./generate-round-dialog.js";
+import { CreateMatchDialog } from "./create-match-dialog.js";
 import { EditTournamentDialog } from "./edit-tournament-dialog.js";
 
 import { Button } from "../ui/button";
@@ -47,6 +48,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
   const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+  const [createMatchDialogOpen, setCreateMatchDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -376,10 +378,19 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <CardTitle>Roster ({players.length})</CardTitle>
             {players.length >= 2 && tournament.status === "draft" && (
-              <Button size="sm" onClick={() => setGenerateDialogOpen(true)}>
-                <Play className="h-4 w-4 mr-2" />
-                Generate First Round
-              </Button>
+              <>
+                {tournament.format === "manual" ? (
+                  <Button size="sm" onClick={() => setCreateMatchDialogOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Match
+                  </Button>
+                ) : (
+                  <Button size="sm" onClick={() => setGenerateDialogOpen(true)}>
+                    <Play className="h-4 w-4 mr-2" />
+                    Generate First Round
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </CardHeader>
@@ -424,6 +435,12 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
         open={generateDialogOpen}
         onOpenChange={setGenerateDialogOpen}
         onGenerated={onUpdated}
+      />
+      <CreateMatchDialog
+        tournamentId={tournament.id}
+        open={createMatchDialogOpen}
+        onOpenChange={setCreateMatchDialogOpen}
+        onCreated={onUpdated}
       />
       <EditTournamentDialog
         tournament={tournament}

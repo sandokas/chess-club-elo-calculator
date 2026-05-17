@@ -42,6 +42,8 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
     },
   });
 
+  const selectedFormat = form.watch("format");
+
   const onSubmit = async (data: TournamentCreateInput) => {
     setIsSubmitting(true);
     try {
@@ -132,38 +134,42 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
               <p className="text-sm text-destructive">{form.formState.errors.startsOn.message}</p>
             )}
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="totalRounds">Total Rounds (optional)</Label>
-            <Input
-              id="totalRounds"
-              type="number"
-              min="1"
-              max="50"
-              {...form.register("totalRounds", { 
-                setValueAs: (v) => v === "" ? undefined : Number(v)
-              })}
-              disabled={isSubmitting}
-              placeholder="Auto-suggested based on players"
-            />
-            {form.formState.errors.totalRounds && (
-              <p className="text-sm text-destructive">{form.formState.errors.totalRounds.message}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="pairingMethod">Pairing Method</Label>
-            <select
-              id="pairingMethod"
-              {...form.register("pairingMethod")}
-              disabled={isSubmitting}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <option value="seeded_by_rating">Seeded by Rating</option>
-              <option value="random">Random</option>
-            </select>
-            {form.formState.errors.pairingMethod && (
-              <p className="text-sm text-destructive">{form.formState.errors.pairingMethod.message}</p>
-            )}
-          </div>
+          {selectedFormat === "swiss" && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="totalRounds">Total Rounds (optional)</Label>
+                <Input
+                  id="totalRounds"
+                  type="number"
+                  min="1"
+                  max="50"
+                  {...form.register("totalRounds", {
+                    setValueAs: (v) => v === "" ? undefined : Number(v)
+                  })}
+                  disabled={isSubmitting}
+                  placeholder="Auto-suggested based on players"
+                />
+                {form.formState.errors.totalRounds && (
+                  <p className="text-sm text-destructive">{form.formState.errors.totalRounds.message}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pairingMethod">Pairing Method</Label>
+                <select
+                  id="pairingMethod"
+                  {...form.register("pairingMethod")}
+                  disabled={isSubmitting}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="seeded_by_rating">Seeded by Rating</option>
+                  <option value="random">Random</option>
+                </select>
+                {form.formState.errors.pairingMethod && (
+                  <p className="text-sm text-destructive">{form.formState.errors.pairingMethod.message}</p>
+                )}
+              </div>
+            </>
+          )}
           <DialogFooter>
             <Button
               type="button"
