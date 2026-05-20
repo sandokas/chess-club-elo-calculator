@@ -1,5 +1,4 @@
 import { type FastifyInstance } from "fastify";
-import { pingDatabase } from "../lib/pool.js";
 
 export type HealthOptions = {
   databasePing?: () => Promise<void>;
@@ -18,7 +17,9 @@ export async function registerHealthRoutes(
   }));
 
   app.get("/health/db", async (_request, reply) => {
-    const ping = options.databasePing ?? pingDatabase;
+    const ping = options.databasePing ?? (async () => {
+      await app.pg.query("SELECT 1");
+    });
     await ping();
     return reply.send({
       status: "ok",

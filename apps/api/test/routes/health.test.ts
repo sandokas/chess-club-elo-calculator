@@ -26,7 +26,7 @@ describe("health routes", () => {
   describe("GET /health/db", () => {
     it("should return database reachable status with default ping", async () => {
       const app = Fastify();
-      await registerHealthRoutes(app);
+      await registerHealthRoutes(app, { databasePing: async () => undefined });
 
       const response = await app.inject({
         method: "GET",

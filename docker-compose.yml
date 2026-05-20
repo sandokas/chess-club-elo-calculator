@@ -25,6 +25,9 @@ services:
     working_dir: /workspace
     command: sh -c "pnpm --filter @chess-club/db db:migrate && pnpm --filter @chess-club/api exec tsx src/server.ts"
     environment:
+      # Quiets pnpm's interactive purge prompt; pnpm treats CI=true as
+      # "non-interactive, never auto-purge".
+      CI: "true"
       NODE_ENV: development
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       API_HOST: 0.0.0.0
@@ -40,6 +43,13 @@ services:
       - "4000:4000"
     volumes:
       - .:/workspace
+      # Anonymous volumes mask the host's node_modules dirs so the container
+      # gets its own Linux-compatible installs, decoupled from whatever
+      # platform-specific binaries the host has.
+      - /workspace/node_modules
+      - /workspace/apps/api/node_modules
+      - /workspace/packages/db/node_modules
+      - /workspace/packages/config/node_modules
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,11 +62,15 @@ services:
     working_dir: /workspace
     command: sh -c "pnpm --filter @chess-club/web dev --host 0.0.0.0"
     environment:
+      CI: "true"
+      npm_config_verify_deps_before_run: "false"
       VITE_API_TARGET: http://api:4000
     ports:
       - "5173:5173"
     volumes:
       - .:/workspace
+      - /workspace/node_modules
+      - /workspace/apps/web/node_modules
     depends_on:
       - api
 

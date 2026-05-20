@@ -1,9 +1,8 @@
 import { type FastifyInstance } from "fastify";
 import { loadEnv } from "@chess-club/config";
 import { generatePKCE, getGoogleAuthUrl, exchangeCodeForTokens, findOrCreateUser } from "../lib/auth/oauth.js";
-import { createSession, loadSession, revokeSession } from "../lib/auth/sessions.js";
+import { createSession, loadSession, revokeSession, touchSession } from "../lib/auth/sessions.js";
 import { getCookieConfig } from "../lib/auth/cookies.js";
-import { createPool } from "@chess-club/db";
 
 const env = loadEnv();
 
@@ -59,41 +58,37 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const googleUser = await exchangeCodeForTokens(code, codeVerifier);
-      const { userId, isNewUser } = await findOrCreateUser(googleUser);
+      const pool = app.pg;
+      const { userId, isNewUser } = await findOrCreateUser(pool, googleUser);
 
       // Bootstrap: promote user to owner of first club if BOOTSTRAP_OWNER_EMAIL matches
       if (env.BOOTSTRAP_OWNER_EMAIL && googleUser.email === env.BOOTSTRAP_OWNER_EMAIL) {
-        const pool = createPool();
-        try {
-          // Check if user has any club memberships
-          const membershipResult = await pool.query(
-            `SELECT COUNT(*) as count FROM club_memberships WHERE user_id = $1`,
-            [userId]
+        // Check if user has any club memberships
+        const membershipResult = await pool.query(
+          `SELECT COUNT(*) as count FROM club_memberships WHERE user_id = $1`,
+          [userId]
+        );
+
+        if (parseInt(membershipResult.rows[0].count) === 0) {
+          // Get the first club
+          const clubResult = await pool.query(
+            `SELECT id FROM clubs ORDER BY created_at ASC LIMIT 1`
           );
 
-          if (parseInt(membershipResult.rows[0].count) === 0) {
-            // Get the first club
-            const clubResult = await pool.query(
-              `SELECT id FROM clubs ORDER BY created_at ASC LIMIT 1`
+          if (clubResult.rows.length > 0) {
+            const clubId = clubResult.rows[0].id;
+            // Promote to owner
+            await pool.query(
+              `INSERT INTO club_memberships (club_id, user_id, role) VALUES ($1, $2, 'owner')`,
+              [clubId, userId]
             );
-
-            if (clubResult.rows.length > 0) {
-              const clubId = clubResult.rows[0].id;
-              // Promote to owner
-              await pool.query(
-                `INSERT INTO club_memberships (club_id, user_id, role) VALUES ($1, $2, 'owner')`,
-                [clubId, userId]
-              );
-              console.log(`Bootstrapped: Promoted ${googleUser.email} to owner of club ${clubId}`);
-            }
+            console.log(`Bootstrapped: Promoted ${googleUser.email} to owner of club ${clubId}`);
           }
-        } finally {
-          await pool.end();
         }
       }
 
       // Create session
-      const { token, expiresAt } = await createSession(userId);
+      const { token, expiresAt } = await createSession(pool, userId);
 
       // Set session cookie
       reply.setCookie(getCookieConfig().name, token, getCookieConfig());
@@ -111,7 +106,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post("/auth/logout", async (request, reply) => {
     const token = request.cookies.sid;
     if (token) {
-      await revokeSession(token);
+      await revokeSession(app.pg, token);
     }
 
     reply.clearCookie(getCookieConfig().name);
@@ -128,7 +123,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const session = await loadSession(token);
+    const session = await loadSession(app.pg, token);
     if (!session) {
       reply.clearCookie(getCookieConfig().name);
       return reply.status(401).send({
@@ -138,7 +133,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Touch session to extend expiry
-    await import("../lib/auth/sessions.js").then(m => m.touchSession(session.sessionId));
+    await touchSession(app.pg, session.sessionId);
 
     return reply.send({
       user: {

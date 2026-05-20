@@ -1,6 +1,51 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// Repo-root + .env loading — SINGLE SOURCE OF TRUTH
+// ---------------------------------------------------------------------------
+// Every script, app, and test that needs to read the repo-root .env (or any
+// other path relative to the repo root) MUST use these helpers. Do NOT compute
+// `../../..` paths in callers; that duplicates a fragile assumption about
+// directory depth.
+
+/**
+ * Walk up from a starting directory until a `pnpm-workspace.yaml` is found,
+ * which marks the monorepo root. Throws if not found.
+ */
+export function findRepoRoot(startDir: string = dirname(fileURLToPath(import.meta.url))): string {
+  let dir = resolve(startDir);
+  while (true) {
+    if (existsSync(resolve(dir, "pnpm-workspace.yaml"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) {
+      throw new Error(
+        `Could not locate repo root (pnpm-workspace.yaml) walking up from ${startDir}`
+      );
+    }
+    dir = parent;
+  }
+}
+
+/**
+ * Load an env file from the repo root into process.env. No-op if the file is
+ * missing. Returns the absolute path that was loaded (or attempted).
+ *
+ * Standard dotenv semantics: existing process env vars take precedence. Call
+ * this multiple times in priority order — the FIRST call's keys win, later
+ * calls only fill in keys that are still unset. Example:
+ *
+ *   loadRepoEnv(".env.test.local"); // test-specific values win first
+ *   loadRepoEnv(".env");            // fills in remaining shared keys
+ */
+export function loadRepoEnv(filename: string = ".env"): string {
+  const path = resolve(findRepoRoot(), filename);
+  loadDotenv({ path });
+  return path;
+}
 
 const envSchema = z.object({
   // Environment

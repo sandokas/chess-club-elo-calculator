@@ -1,4 +1,5 @@
-import { createPool } from "@chess-club/db";
+
+import type { Pool } from "pg";
 import type { SessionData } from "./sessions.js";
 import type { FastifyRequest, FastifyReply } from "fastify";
 
@@ -16,7 +17,8 @@ export async function attachUser(request: FastifyRequest, reply: FastifyReply) {
     return;
   }
 
-  const session = await loadSession(token);
+  const pool = request.server.pg;
+  const session = await loadSession(pool, token);
   if (!session) {
     request.user = null;
     return;
@@ -79,64 +81,49 @@ export async function requireClubRole(
 /**
  * Get membership for a specific club
  */
-export async function getMembership(userId: string, clubId: string): Promise<ClubRole | null> {
-  const pool = createPool();
-  try {
-    const result = await pool.query(
-      `SELECT role FROM club_memberships WHERE user_id = $1 AND club_id = $2`,
-      [userId, clubId]
-    );
+export async function getMembership(pool: Pool, userId: string, clubId: string): Promise<ClubRole | null> {
+  const result = await pool.query(
+    `SELECT role FROM club_memberships WHERE user_id = $1 AND club_id = $2`,
+    [userId, clubId]
+  );
 
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0].role as ClubRole;
-  } finally {
-    await pool.end();
+  if (result.rows.length === 0) {
+    return null;
   }
+
+  return result.rows[0].role as ClubRole;
 }
 
 /**
  * Resolve club ID from tournament ID
  */
-export async function resolveClubIdFromTournament(tournamentId: string): Promise<string | null> {
-  const pool = createPool();
-  try {
-    const result = await pool.query(
-      `SELECT club_id FROM tournaments WHERE id = $1`,
-      [tournamentId]
-    );
+export async function resolveClubIdFromTournament(pool: Pool, tournamentId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT club_id FROM tournaments WHERE id = $1`,
+    [tournamentId]
+  );
 
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0].club_id;
-  } finally {
-    await pool.end();
+  if (result.rows.length === 0) {
+    return null;
   }
+
+  return result.rows[0].club_id;
 }
 
 /**
  * Resolve club ID from player ID
  */
-export async function resolveClubIdFromPlayer(playerId: string): Promise<string | null> {
-  const pool = createPool();
-  try {
-    const result = await pool.query(
-      `SELECT club_id FROM players WHERE id = $1`,
-      [playerId]
-    );
+export async function resolveClubIdFromPlayer(pool: Pool, playerId: string): Promise<string | null> {
+  const result = await pool.query(
+    `SELECT club_id FROM players WHERE id = $1`,
+    [playerId]
+  );
 
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return result.rows[0].club_id;
-  } finally {
-    await pool.end();
+  if (result.rows.length === 0) {
+    return null;
   }
+
+  return result.rows[0].club_id;
 }
 
 /**
@@ -154,8 +141,9 @@ export async function requireTournamentClubRole(
     });
   }
 
+  const pool = request.server.pg;
   const tournamentId = request.params.id as string;
-  const clubId = await resolveClubIdFromTournament(tournamentId);
+  const clubId = await resolveClubIdFromTournament(pool, tournamentId);
 
   if (!clubId) {
     return reply.status(404).send({
@@ -195,8 +183,9 @@ export async function requirePlayerClubRole(
     });
   }
 
+  const pool = request.server.pg;
   const playerId = request.params.id as string;
-  const clubId = await resolveClubIdFromPlayer(playerId);
+  const clubId = await resolveClubIdFromPlayer(pool, playerId);
 
   if (!clubId) {
     return reply.status(404).send({

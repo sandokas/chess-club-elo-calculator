@@ -1,7 +1,6 @@
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance } from "fastify";
-import { createPool } from "@chess-club/db";
 import { ratingConfig, loadEnv } from "@chess-club/config";
 import { registerHealthRoutes, type HealthOptions } from "./routes/health.js";
 import { registerPlayerRoutes } from "./routes/players.js";
@@ -11,9 +10,14 @@ import { asHttpError, createErrorResponse } from "./lib/errors.js";
 import { generateSwissPairings } from "./lib/swiss-pairing.js";
 import { recomputeRatings, applyRatedMatch, type MatchInput, type RatingProfile } from "./lib/ratings/ratings.js";
 import { attachUser, requireAuth, requireClubRole, requireTournamentClubRole, requirePlayerClubRole, resolveClubIdFromTournament } from "./lib/auth/rbac.js";
+import dbPlugin from "./plugins/db.js";
+import type { Db } from "@chess-club/db";
+import type pg from "pg";
 
 export type AppOptions = {
   databasePing?: () => Promise<void>;
+  pool?: pg.Pool;
+  db?: Db;
 };
 
 type ClubParams = {
@@ -39,6 +43,12 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
   // Cookie plugin - must be registered before any preHandler that reads cookies
   await app.register(cookie);
+
+  // Database plugin - single pool lifecycle
+  await app.register(dbPlugin, {
+    pool: options.pool,
+    db: options.db
+  });
 
   app.setErrorHandler((error, _request, reply) => {
     const { statusCode, body } = createErrorResponse(error);
@@ -67,19 +77,19 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
   const conditionalRequirePlayerClubRole = env.REQUIRE_AUTH ? requirePlayerClubRole : noopHandler;
 
   app.get("/clubs", { preHandler: [conditionalRequireAuth] }, async (request, reply) => {
-    const pool = createPool();
-    try {
+    const pool = app.pg;
+    
       app.log.info({ msg: "GET /clubs request received", user: request.user?.id });
       
-      // If auth is enabled, only return clubs the user is a member of
-      const userId = request.user?.id;
-      let query = `
+    // If auth is enabled, only return clubs the user is a member of
+    const userId = request.user?.id;
+    let query = `
         SELECT id, name, slug, description, city, country, created_at AS "createdAt", updated_at AS "updatedAt"
         FROM clubs
       `;
-      const params: any[] = [];
+    const params: any[] = [];
 
-      if (env.REQUIRE_AUTH && userId) {
+    if (env.REQUIRE_AUTH && userId) {
         query += `
           WHERE id IN (SELECT club_id FROM club_memberships WHERE user_id = $1)
         `;
@@ -88,53 +98,47 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
       query += " ORDER BY name";
 
-      const result = await pool.query(query, params);
-      app.log.info({ msg: "GET /clubs query successful", count: result.rows.length });
-      return { clubs: result.rows };
-    } catch (error) {
-      app.log.error({ msg: "GET /clubs error", error });
-      throw error;
-    } finally {
-      await pool.end();
-    }
+    const result = await pool.query(query, params);
+    app.log.info({ msg: "GET /clubs query successful", count: result.rows.length });
+    return { clubs: result.rows };
   });
 
   app.post<{ Body: { name: string; description?: string; city?: string; country?: string } }>("/clubs", { preHandler: [conditionalRequireAuth] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { name, description, city, country } = request.body;
+    const pool = app.pg;
+    
+    const { name, description, city, country } = request.body;
 
-      if (!name || name.trim() === "") {
+    if (!name || name.trim() === "") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "name is required"
         });
       }
 
-      const trimmedName = name.trim();
-      const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    const trimmedName = name.trim();
+    const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
-      if (slug === "") {
+    if (slug === "") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "name must contain valid characters"
         });
       }
 
-      // Check if slug already exists
-      const existingClub = await pool.query(
+    // Check if slug already exists
+    const existingClub = await pool.query(
         `SELECT id FROM clubs WHERE slug = $1`,
         [slug]
       );
 
-      if (existingClub.rows.length > 0) {
+    if (existingClub.rows.length > 0) {
         return reply.status(409).send({
           error: "ConflictError",
           message: "A club with this slug already exists"
         });
       }
 
-      const result = await pool.query(
+    const result = await pool.query(
         `
           INSERT INTO clubs (name, slug, description, city, country)
           VALUES ($1, $2, $3, $4, $5)
@@ -149,72 +153,70 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         ]
       );
 
-      // If auth is enabled, create the user as owner of the new club
-      const club = result.rows[0];
-      if (env.REQUIRE_AUTH && request.user) {
+    // If auth is enabled, create the user as owner of the new club
+    const club = result.rows[0];
+    if (env.REQUIRE_AUTH && request.user) {
         await pool.query(
           `INSERT INTO club_memberships (club_id, user_id, role) VALUES ($1, $2, 'owner')`,
           [club.id, request.user.id]
         );
       }
 
-      return reply.status(201).send({ club });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(201).send({ club });
+    
   });
 
   app.patch<{ Params: ClubParams; Body: { name?: string; description?: string; city?: string; country?: string } }>("/clubs/:clubId", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { name, description, city, country } = request.body;
+    const pool = app.pg;
+    
+    const { name, description, city, country } = request.body;
 
-      if (name !== undefined && name.trim() === "") {
+    if (name !== undefined && name.trim() === "") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "name cannot be empty"
         });
       }
 
-      const updates: string[] = [];
-      const values: any[] = [];
-      let paramIndex = 1;
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
 
-      if (name !== undefined) {
+    if (name !== undefined) {
         updates.push(`name = $${paramIndex}`);
         values.push(name.trim());
         paramIndex++;
       }
 
-      if (description !== undefined) {
+    if (description !== undefined) {
         updates.push(`description = $${paramIndex}`);
         values.push(description.trim() || null);
         paramIndex++;
       }
 
-      if (city !== undefined) {
+    if (city !== undefined) {
         updates.push(`city = $${paramIndex}`);
         values.push(city.trim() || null);
         paramIndex++;
       }
 
-      if (country !== undefined) {
+    if (country !== undefined) {
         updates.push(`country = $${paramIndex}`);
         values.push(country.trim() || null);
         paramIndex++;
       }
 
-      if (updates.length === 0) {
+    if (updates.length === 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "No fields to update"
         });
       }
 
-      updates.push(`updated_at = NOW()`);
-      values.push(request.params.clubId);
+    updates.push(`updated_at = NOW()`);
+    values.push(request.params.clubId);
 
-      const result = await pool.query(
+    const result = await pool.query(
         `
           UPDATE clubs
           SET ${updates.join(", ")}
@@ -232,67 +234,63 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         values
       );
 
-      if (result.rows.length === 0) {
+    if (result.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Club not found"
         });
       }
 
-      return reply.status(200).send({ club: result.rows[0] });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(200).send({ club: result.rows[0] });
+    
   });
 
   app.delete<{ Params: ClubParams }>("/clubs/:clubId", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireClubRole(request, reply, ["owner"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      // Verify club exists
-      const clubResult = await pool.query(
+    const pool = app.pg;
+    
+    // Verify club exists
+    const clubResult = await pool.query(
         `SELECT id, name FROM clubs WHERE id = $1`,
         [request.params.clubId]
       );
 
-      if (clubResult.rows.length === 0) {
+    if (clubResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Club not found"
         });
       }
 
-      // Delete club - cascade handles all related data
-      await pool.query(
+    // Delete club - cascade handles all related data
+    await pool.query(
         `DELETE FROM clubs WHERE id = $1`,
         [request.params.clubId]
       );
 
-      return reply.status(204).send();
-    } finally {
-      await pool.end();
-    }
+    return reply.status(204).send();
+    
   });
 
   app.post<{ Params: ClubParams }>("/clubs/:clubId/ratings/recompute", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireClubRole(request, reply, ["owner", "admin"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      // Fetch all players for the club
-      const playersResult = await pool.query(
+    const pool = app.pg;
+    
+    // Fetch all players for the club
+    const playersResult = await pool.query(
         `SELECT id FROM players WHERE club_id = $1`,
         [request.params.clubId]
       );
 
-      if (playersResult.rows.length === 0) {
+    if (playersResult.rows.length === 0) {
         return reply.status(200).send({
           message: "No players found in club",
           playersUpdated: 0
         });
       }
 
-      const playerIds = playersResult.rows.map(row => row.id);
+    const playerIds = playersResult.rows.map(row => row.id);
 
-      // Fetch all completed real matches for the club (exclude byes)
-      const matchesResult = await pool.query(
+    // Fetch all completed real matches for the club (exclude byes)
+    const matchesResult = await pool.query(
         `
           SELECT
             m.id,
@@ -309,14 +307,14 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.clubId]
       );
 
-      if (matchesResult.rows.length === 0) {
+    if (matchesResult.rows.length === 0) {
         return reply.status(200).send({
           message: "No completed matches found in club",
           playersUpdated: 0
         });
       }
 
-      const matches: MatchInput[] = matchesResult.rows.map(row => ({
+    const matches: MatchInput[] = matchesResult.rows.map(row => ({
         id: row.id,
         whitePlayerId: row.whitePlayerId,
         blackPlayerId: row.blackPlayerId,
@@ -324,12 +322,12 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         date: row.playedOn
       }));
 
-      // Recompute ratings using the core library
-      const { profiles, audits } = recomputeRatings(playerIds, matches);
+    // Recompute ratings using the core library
+    const { profiles, audits } = recomputeRatings(playerIds, matches);
 
-      // Update player ratings in the database
-      let updatedCount = 0;
-      for (const [playerId, profile] of profiles.entries()) {
+    // Update player ratings in the database
+    let updatedCount = 0;
+    for (const [playerId, profile] of profiles.entries()) {
         await pool.query(
           `
             UPDATE player_ratings
@@ -356,8 +354,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         updatedCount++;
       }
 
-      // Update match rating audits
-      for (const audit of audits) {
+    // Update match rating audits
+    for (const audit of audits) {
         await pool.query(
           `
             UPDATE matches
@@ -403,36 +401,34 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         );
       }
 
-      return reply.status(200).send({
+    return reply.status(200).send({
         message: "Ratings recomputed successfully",
         playersUpdated: updatedCount,
         matchesAudited: audits.length
       });
-    } finally {
-      await pool.end();
-    }
+    
   });
 
   app.get<{ Params: ClubParams; Querystring: { page?: string; limit?: string; sortBy?: string; sortOrder?: string; name?: string; status?: string } }>("/clubs/:clubId/tournaments", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireClubRole(request, reply, ["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const page = Math.max(1, parseInt(request.query.page || '1', 10));
-      const limit = [10, 20, 50].includes(parseInt(request.query.limit || '20', 10)) ? parseInt(request.query.limit || '20', 10) : 20;
-      const allowedSortColumns = ['name', 'startsOn', 'status', 'playerCount', 'matchCount'];
-      const sortBy = allowedSortColumns.includes(request.query.sortBy || 'startsOn') ? request.query.sortBy || 'startsOn' : 'startsOn';
-      const sortOrder = (request.query.sortOrder === 'asc' || request.query.sortOrder === 'desc') ? request.query.sortOrder : 'desc';
+    const pool = app.pg;
+    
+    const page = Math.max(1, parseInt(request.query.page || '1', 10));
+    const limit = [10, 20, 50].includes(parseInt(request.query.limit || '20', 10)) ? parseInt(request.query.limit || '20', 10) : 20;
+    const allowedSortColumns = ['name', 'startsOn', 'status', 'playerCount', 'matchCount'];
+    const sortBy = allowedSortColumns.includes(request.query.sortBy || 'startsOn') ? request.query.sortBy || 'startsOn' : 'startsOn';
+    const sortOrder = (request.query.sortOrder === 'asc' || request.query.sortOrder === 'desc') ? request.query.sortOrder : 'desc';
 
-      const filters: string[] = [];
-      const params: any[] = [request.params.clubId];
-      let paramIndex = 2;
+    const filters: string[] = [];
+    const params: any[] = [request.params.clubId];
+    let paramIndex = 2;
 
-      if (request.query.name) {
+    if (request.query.name) {
         filters.push(`t.name LIKE $${paramIndex}`);
         params.push(`%${request.query.name}%`);
         paramIndex++;
       }
 
-      if (request.query.status) {
+    if (request.query.status) {
         const validStatuses = ['draft', 'active', 'completed'];
         if (validStatuses.includes(request.query.status)) {
           filters.push(`t.status = $${paramIndex}`);
@@ -441,36 +437,36 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         }
       }
 
-      const whereClause = filters.length > 0 ? `AND ${filters.join(' AND ')}` : '';
+    const whereClause = filters.length > 0 ? `AND ${filters.join(' AND ')}` : '';
 
-      const sortColumnMap: Record<string, string> = {
+    const sortColumnMap: Record<string, string> = {
         name: 't.name',
         startsOn: 't.starts_on',
         status: 't.status',
         playerCount: 'player_count',
         matchCount: 'match_count'
       };
-      const dbSortColumn = sortColumnMap[sortBy];
+    const dbSortColumn = sortColumnMap[sortBy];
 
-      const countResult = await pool.query(
+    const countResult = await pool.query(
         `SELECT COUNT(*) AS total FROM tournaments t WHERE t.club_id = $1 ${whereClause}`,
         params
       );
-      const total = parseInt(countResult.rows[0].total, 10);
-      const totalPages = Math.ceil(total / limit);
+    const total = parseInt(countResult.rows[0].total, 10);
+    const totalPages = Math.ceil(total / limit);
 
-      if (page > totalPages && totalPages > 0) {
+    if (page > totalPages && totalPages > 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Page exceeds total pages"
         });
       }
 
-      const offset = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
-      params.push(limit, offset);
+    params.push(limit, offset);
 
-      const result = await pool.query(
+    const result = await pool.query(
         `
           SELECT
             t.id,
@@ -492,7 +488,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         params
       );
 
-      return {
+    return {
         tournaments: result.rows,
         pagination: {
           page,
@@ -501,59 +497,57 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
           totalPages
         }
       };
-    } finally {
-      await pool.end();
-    }
+    
   });
 
   app.post<{ Params: ClubParams; Body: { name: string; startsOn?: string; format?: string; totalRounds?: number; pairingMethod?: string } }>("/clubs/:clubId/tournaments", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { name, startsOn, format, totalRounds, pairingMethod } = request.body;
+    const pool = app.pg;
+    
+    const { name, startsOn, format, totalRounds, pairingMethod } = request.body;
 
-      if (!name || name.trim() === "") {
+    if (!name || name.trim() === "") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "name is required"
         });
       }
 
-      const validFormats = ["manual", "swiss"];
-      if (format && !validFormats.includes(format)) {
+    const validFormats = ["manual", "swiss"];
+    if (format && !validFormats.includes(format)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: `format must be one of: ${validFormats.join(", ")}`
         });
       }
 
-      const validPairingMethods = ["seeded_by_rating", "random"];
-      if (pairingMethod && !validPairingMethods.includes(pairingMethod)) {
+    const validPairingMethods = ["seeded_by_rating", "random"];
+    if (pairingMethod && !validPairingMethods.includes(pairingMethod)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: `pairingMethod must be one of: ${validPairingMethods.join(", ")}`
         });
       }
 
-      if (totalRounds !== undefined && (totalRounds < 1 || totalRounds > 50)) {
+    if (totalRounds !== undefined && (totalRounds < 1 || totalRounds > 50)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "totalRounds must be between 1 and 50"
         });
       }
 
-      // Validate: only one tournament can be ongoing at a time
-      const ongoingTournamentResult = await pool.query(
+    // Validate: only one tournament can be ongoing at a time
+    const ongoingTournamentResult = await pool.query(
         `SELECT id FROM tournaments WHERE club_id = $1 AND status IN ('draft', 'active')`,
         [request.params.clubId]
       );
-      if (ongoingTournamentResult.rows.length > 0) {
+    if (ongoingTournamentResult.rows.length > 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Cannot create tournament: there is already an ongoing tournament in this club"
         });
       }
 
-      const result = await pool.query(
+    const result = await pool.query(
         `
           INSERT INTO tournaments (club_id, name, starts_on, format, total_rounds, pairing_method, status)
           VALUES ($1, $2, $3, $4, $5, $6, 'draft')
@@ -579,53 +573,49 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         ]
       );
 
-      return reply.status(201).send({ tournament: result.rows[0] });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(201).send({ tournament: result.rows[0] });
+    
   });
 
   app.delete<{ Params: TournamentParams }>("/tournaments/:id", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const currentResult = await pool.query(
+    const pool = app.pg;
+    
+    const currentResult = await pool.query(
         `SELECT id, status FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
-      if (currentResult.rows.length === 0) {
+    if (currentResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Tournament not found"
         });
       }
 
-      const current = currentResult.rows[0];
+    const current = currentResult.rows[0];
 
-      if (current.status !== "draft") {
+    if (current.status !== "draft") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Can only delete tournaments in draft status"
         });
       }
 
-      await pool.query(
+    await pool.query(
         `DELETE FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
-      return reply.status(200).send({ message: "Tournament deleted successfully" });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(200).send({ message: "Tournament deleted successfully" });
+    
   });
 
   app.get<{ Params: ClubParams; Querystring: { activeOnly?: string; limit?: string } }>("/clubs/:clubId/leaderboard", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireClubRole(request, reply, ["owner", "admin", "organizer", "member"])] }, async (request) => {
-    const pool = createPool();
-    try {
-      const activeOnly = request.query.activeOnly !== 'false';
-      const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
-      const result = await pool.query(
+    const pool = app.pg;
+    
+    const activeOnly = request.query.activeOnly !== 'false';
+    const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
+    const result = await pool.query(
         `
           SELECT
             p.id,
@@ -653,16 +643,14 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         `,
         [request.params.clubId, limit]
       );
-      return { leaderboard: result.rows };
-    } finally {
-      await pool.end();
-    }
+    return { leaderboard: result.rows };
+    
   });
 
   app.get<{ Params: TournamentParams }>("/tournaments/:id", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer", "member"])] }, async (request) => {
-    const pool = createPool();
-    try {
-      const tournamentResult = await pool.query(
+    const pool = app.pg;
+    
+    const tournamentResult = await pool.query(
         `
           SELECT
             t.id,
@@ -685,13 +673,13 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      if (tournamentResult.rows.length === 0) {
+    if (tournamentResult.rows.length === 0) {
         return { error: "Tournament not found" };
       }
 
-      const tournament = tournamentResult.rows[0];
+    const tournament = tournamentResult.rows[0];
 
-      const matchesResult = await pool.query(
+    const matchesResult = await pool.query(
         `
           SELECT
             m.id,
@@ -714,7 +702,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      const standingsResult = await pool.query(
+    const standingsResult = await pool.query(
         `
           SELECT
             p.id AS "playerId",
@@ -738,11 +726,11 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      // Calculate Buchholz and Sonneborn-Berger tiebreakers
-      const pointsById = new Map<string, number>(
+    // Calculate Buchholz and Sonneborn-Berger tiebreakers
+    const pointsById = new Map<string, number>(
         standingsResult.rows.map((r) => [r.playerId, r.points])
       );
-      const oppQuery = await pool.query(
+    const oppQuery = await pool.query(
         `
           SELECT
             tp.player_id AS "playerId",
@@ -758,8 +746,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      const tiebreaks = new Map<string, { buchholz: number; sb: number }>();
-      for (const row of oppQuery.rows) {
+    const tiebreaks = new Map<string, { buchholz: number; sb: number }>();
+    for (const row of oppQuery.rows) {
         const oppPts = pointsById.get(row.opponentId) ?? 0;
         const score = parseFloat(row.scoreFromOurSide);
         const tb = tiebreaks.get(row.playerId) ?? { buchholz: 0, sb: 0 };
@@ -769,13 +757,13 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         tiebreaks.set(row.playerId, tb);
       }
 
-      for (const standing of standingsResult.rows) {
+    for (const standing of standingsResult.rows) {
         const tb = tiebreaks.get(standing.playerId) ?? { buchholz: 0, sb: 0 };
         standing.buchholz = tb.buchholz;
         standing.sonnebornBerger = tb.sb;
       }
 
-      // Sort by points, Buchholz, Sonneborn-Berger, wins
+    // Sort by points, Buchholz, Sonneborn-Berger, wins
       standingsResult.rows.sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
         if (b.buchholz !== a.buchholz) return b.buchholz - a.buchholz;
@@ -784,7 +772,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         return b.wins - a.wins;
       });
 
-      const tournamentPlayersResult = await pool.query(
+    const tournamentPlayersResult = await pool.query(
         `
           SELECT
             tp.player_id AS "playerId",
@@ -796,82 +784,80 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      return {
+    return {
         tournament,
         matches: matchesResult.rows,
         standings: standingsResult.rows,
         tournamentPlayers: tournamentPlayersResult.rows
       };
-    } finally {
-      await pool.end();
-    }
+    
   });
 
   app.put<{ Params: TournamentParams; Body: { name?: string; startsOn?: string; status?: string; totalRounds?: number; pairingMethod?: string } }>("/tournaments/:id", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { name, startsOn, status, totalRounds, pairingMethod } = request.body;
+    const pool = app.pg;
+    
+    const { name, startsOn, status, totalRounds, pairingMethod } = request.body;
 
-      const validStatuses = ["draft", "active", "completed"];
-      if (status !== undefined && !validStatuses.includes(status)) {
+    const validStatuses = ["draft", "active", "completed"];
+    if (status !== undefined && !validStatuses.includes(status)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: `status must be one of: ${validStatuses.join(", ")}`
         });
       }
 
-      if (name !== undefined && name.trim() === "") {
+    if (name !== undefined && name.trim() === "") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "name cannot be empty"
         });
       }
 
-      if (startsOn !== undefined && isNaN(Date.parse(startsOn))) {
+    if (startsOn !== undefined && isNaN(Date.parse(startsOn))) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "startsOn must be a valid date"
         });
       }
 
-      const validPairingMethods = ["seeded_by_rating", "random"];
-      if (pairingMethod !== undefined && !validPairingMethods.includes(pairingMethod)) {
+    const validPairingMethods = ["seeded_by_rating", "random"];
+    if (pairingMethod !== undefined && !validPairingMethods.includes(pairingMethod)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: `pairingMethod must be one of: ${validPairingMethods.join(", ")}`
         });
       }
 
-      if (totalRounds !== undefined && (totalRounds < 1 || totalRounds > 50)) {
+    if (totalRounds !== undefined && (totalRounds < 1 || totalRounds > 50)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "totalRounds must be between 1 and 50"
         });
       }
 
-      const currentResult = await pool.query(
+    const currentResult = await pool.query(
         `SELECT id, status, name, starts_on FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
-      if (currentResult.rows.length === 0) {
+    if (currentResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Tournament not found"
         });
       }
 
-      const current = currentResult.rows[0];
+    const current = currentResult.rows[0];
 
-      if (current.status === "completed" && (name !== undefined || startsOn !== undefined)) {
+    if (current.status === "completed" && (name !== undefined || startsOn !== undefined)) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Cannot edit name or startsOn when tournament is completed. Revert status to active first."
         });
       }
 
-      // Prevent completing tournament if matches have no results
-      if (status === "completed") {
+    // Prevent completing tournament if matches have no results
+    if (status === "completed") {
         const incompleteMatchesResult = await pool.query(
           `SELECT COUNT(*) AS count FROM matches WHERE tournament_id = $1 AND result IS NULL`,
           [request.params.id]
@@ -886,51 +872,51 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         }
       }
 
-      const updates: string[] = [];
-      const values: any[] = [];
-      let paramIndex = 1;
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
 
-      if (name !== undefined) {
+    if (name !== undefined) {
         updates.push(`name = $${paramIndex}`);
         values.push(name.trim());
         paramIndex++;
       }
 
-      if (startsOn !== undefined) {
+    if (startsOn !== undefined) {
         updates.push(`starts_on = $${paramIndex}`);
         values.push(startsOn);
         paramIndex++;
       }
 
-      if (status !== undefined) {
+    if (status !== undefined) {
         updates.push(`status = $${paramIndex}`);
         values.push(status);
         paramIndex++;
       }
 
-      if (totalRounds !== undefined) {
+    if (totalRounds !== undefined) {
         updates.push(`total_rounds = $${paramIndex}`);
         values.push(totalRounds);
         paramIndex++;
       }
 
-      if (pairingMethod !== undefined) {
+    if (pairingMethod !== undefined) {
         updates.push(`pairing_method = $${paramIndex}`);
         values.push(pairingMethod);
         paramIndex++;
       }
 
-      if (updates.length === 0) {
+    if (updates.length === 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "No fields to update"
         });
       }
 
-      updates.push(`updated_at = NOW()`);
-      values.push(request.params.id);
+    updates.push(`updated_at = NOW()`);
+    values.push(request.params.id);
 
-      const result = await pool.query(
+    const result = await pool.query(
         `
           UPDATE tournaments
           SET ${updates.join(", ")}
@@ -950,36 +936,34 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         values
       );
 
-      return reply.status(200).send({ tournament: result.rows[0] });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(200).send({ tournament: result.rows[0] });
+    
   });
 
   // Roster management endpoints
   app.post<{ Params: TournamentParams; Body: { playerId: string } }>("/tournaments/:id/players", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { playerId } = request.body;
+    const pool = app.pg;
+    
+    const { playerId } = request.body;
 
-      // Check tournament exists and is in draft status
-      const tournamentResult = await pool.query(
+    // Check tournament exists and is in draft status
+    const tournamentResult = await pool.query(
         `SELECT id, status, club_id FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
-      if (tournamentResult.rows.length === 0) {
+    if (tournamentResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Tournament not found"
         });
       }
 
-      const tournament = tournamentResult.rows[0];
+    const tournament = tournamentResult.rows[0];
 
-      let round1Id: string | null = null;
+    let round1Id: string | null = null;
 
-      if (tournament.status !== "draft") {
+    if (tournament.status !== "draft") {
         // Allow adding players during first round
         if (tournament.status === "active") {
           // Check if round 1 exists and is incomplete
@@ -1004,43 +988,43 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         }
       }
 
-      // Check player exists and belongs to the same club
-      const playerResult = await pool.query(
+    // Check player exists and belongs to the same club
+    const playerResult = await pool.query(
         `SELECT id, club_id FROM players WHERE id = $1`,
         [playerId]
       );
 
-      if (playerResult.rows.length === 0) {
+    if (playerResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Player not found"
         });
       }
 
-      const player = playerResult.rows[0];
+    const player = playerResult.rows[0];
 
-      if (player.club_id !== tournament.club_id) {
+    if (player.club_id !== tournament.club_id) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Player belongs to a different club"
         });
       }
 
-      // Check if player is already in tournament
-      const existingResult = await pool.query(
+    // Check if player is already in tournament
+    const existingResult = await pool.query(
         `SELECT player_id FROM tournament_players WHERE tournament_id = $1 AND player_id = $2`,
         [request.params.id, playerId]
       );
 
-      if (existingResult.rows.length > 0) {
+    if (existingResult.rows.length > 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Player already in tournament"
         });
       }
 
-      // Add player to tournament
-      const result = await pool.query(
+    // Add player to tournament
+    const result = await pool.query(
         `
           INSERT INTO tournament_players (tournament_id, player_id, white_count, black_count)
           VALUES ($1, $2, 0, 0)
@@ -1049,8 +1033,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id, playerId]
       );
 
-      // If adding during first round, handle pairing
-      if (round1Id !== null) {
+    // If adding during first round, handle pairing
+    if (round1Id !== null) {
         // Find a bye (player with no match in round 1)
         const byeResult = await pool.query(
           `
@@ -1084,42 +1068,40 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         // If no bye, new player gets a bye (no match created)
       }
 
-      return reply.status(201).send({ tournamentPlayer: result.rows[0] });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(201).send({ tournamentPlayer: result.rows[0] });
+    
   });
 
   app.post<{ Params: TournamentParams; Body: { displayName: string } }>("/tournaments/:id/players/new", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { displayName } = request.body;
+    const pool = app.pg;
+    
+    const { displayName } = request.body;
 
-      if (!displayName || displayName.trim() === "") {
+    if (!displayName || displayName.trim() === "") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "displayName is required"
         });
       }
 
-      // Get tournament details
-      const tournamentResult = await pool.query(
+    // Get tournament details
+    const tournamentResult = await pool.query(
         `SELECT id, status, club_id FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
-      if (tournamentResult.rows.length === 0) {
+    if (tournamentResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Tournament not found"
         });
       }
 
-      const tournament = tournamentResult.rows[0];
+    const tournament = tournamentResult.rows[0];
 
-      let round1Id: string | null = null;
+    let round1Id: string | null = null;
 
-      if (tournament.status !== "draft") {
+    if (tournament.status !== "draft") {
         // Allow adding players during first round
         if (tournament.status === "active") {
           // Check if round 1 exists and is incomplete
@@ -1144,8 +1126,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         }
       }
 
-      // Create player
-      const playerResult = await pool.query(
+    // Create player
+    const playerResult = await pool.query(
         `
           INSERT INTO players (club_id, display_name, active)
           VALUES ($1, $2, true)
@@ -1154,10 +1136,10 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [tournament.club_id, displayName.trim()]
       );
 
-      const playerId = playerResult.rows[0].id;
+    const playerId = playerResult.rows[0].id;
 
-      // Create player ratings using the single rating config source of truth.
-      await pool.query(
+    // Create player ratings using the single rating config source of truth.
+    await pool.query(
         `
           INSERT INTO player_ratings (player_id, club_id, elo, glicko_rating, glicko_rd, glicko_vol, games_played)
           VALUES ($1, $2, $3, $4, $5, $6, 0)
@@ -1172,8 +1154,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         ]
       );
 
-      // Add to tournament
-      const tournamentPlayerResult = await pool.query(
+    // Add to tournament
+    const tournamentPlayerResult = await pool.query(
         `
           INSERT INTO tournament_players (tournament_id, player_id, white_count, black_count)
           VALUES ($1, $2, 0, 0)
@@ -1182,8 +1164,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id, playerId]
       );
 
-      // If adding during first round, handle pairing
-      if (round1Id !== null) {
+    // If adding during first round, handle pairing
+    if (round1Id !== null) {
         // Find a bye (player with no match in round 1)
         const byeResult = await pool.query(
           `
@@ -1217,78 +1199,74 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         // If no bye, new player gets a bye (no match created)
       }
 
-      return reply.status(201).send({ tournamentPlayer: tournamentPlayerResult.rows[0] });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(201).send({ tournamentPlayer: tournamentPlayerResult.rows[0] });
+    
   });
 
   app.delete<{ Params: TournamentParams & { playerId: string } }>("/tournaments/:id/players/:playerId", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      // Check tournament exists and is in draft status
-      const tournamentResult = await pool.query(
+    const pool = app.pg;
+    
+    // Check tournament exists and is in draft status
+    const tournamentResult = await pool.query(
         `SELECT id, status FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
-      if (tournamentResult.rows.length === 0) {
+    if (tournamentResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Tournament not found"
         });
       }
 
-      const tournament = tournamentResult.rows[0];
+    const tournament = tournamentResult.rows[0];
 
-      if (tournament.status !== "draft") {
+    if (tournament.status !== "draft") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Can only remove players from tournaments in draft status"
         });
       }
 
-      // Remove player from tournament
-      await pool.query(
+    // Remove player from tournament
+    await pool.query(
         `DELETE FROM tournament_players WHERE tournament_id = $1 AND player_id = $2`,
         [request.params.id, request.params.playerId]
       );
 
-      return reply.status(204).send();
-    } finally {
-      await pool.end();
-    }
+    return reply.status(204).send();
+    
   });
 
   app.put<{ Params: TournamentParams & { playerId: string }; Body: { droppedOutRound: number } }>("/tournaments/:id/players/:playerId/dropout", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { droppedOutRound } = request.body;
+    const pool = app.pg;
+    
+    const { droppedOutRound } = request.body;
 
-      // Check tournament exists and is active
-      const tournamentResult = await pool.query(
+    // Check tournament exists and is active
+    const tournamentResult = await pool.query(
         `SELECT id, status FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
-      if (tournamentResult.rows.length === 0) {
+    if (tournamentResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Tournament not found"
         });
       }
 
-      const tournament = tournamentResult.rows[0];
+    const tournament = tournamentResult.rows[0];
 
-      if (tournament.status !== "active") {
+    if (tournament.status !== "active") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Can only mark dropout for active tournaments"
         });
       }
 
-      // Update player dropout round
-      const result = await pool.query(
+    // Update player dropout round
+    const result = await pool.query(
         `
           UPDATE tournament_players
           SET dropped_out_round = $1
@@ -1298,23 +1276,21 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [droppedOutRound, request.params.id, request.params.playerId]
       );
 
-      if (result.rows.length === 0) {
+    if (result.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Player not found in tournament"
         });
       }
 
-      return reply.status(200).send({ tournamentPlayer: result.rows[0] });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(200).send({ tournamentPlayer: result.rows[0] });
+    
   });
 
   app.get<{ Params: TournamentParams }>("/tournaments/:id/players", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const result = await pool.query(
+    const pool = app.pg;
+    
+    const result = await pool.query(
         `
           SELECT
             tp.player_id AS "playerId",
@@ -1337,58 +1313,56 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      return { players: result.rows };
-    } finally {
-      await pool.end();
-    }
+    return { players: result.rows };
+    
   });
 
   // Round management endpoints
   app.post<{ Params: TournamentParams; Body: { startsOn?: string } }>("/tournaments/:id/rounds", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { startsOn } = request.body;
+    const pool = app.pg;
+    
+    const { startsOn } = request.body;
       
-      // Get tournament details
-      const tournamentResult = await pool.query(
+    // Get tournament details
+    const tournamentResult = await pool.query(
         `SELECT id, status, format, club_id, pairing_method, total_rounds FROM tournaments WHERE id = $1`,
         [request.params.id]
       );
 
-      if (tournamentResult.rows.length === 0) {
+    if (tournamentResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Tournament not found"
         });
       }
 
-      const tournament = tournamentResult.rows[0];
+    const tournament = tournamentResult.rows[0];
 
-      if (tournament.format !== "swiss") {
+    if (tournament.format !== "swiss") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Round generation only supported for Swiss tournaments"
         });
       }
 
-      // Get the last round number
-      const lastRoundResult = await pool.query(
+    // Get the last round number
+    const lastRoundResult = await pool.query(
         `SELECT MAX(number) AS max_round FROM rounds WHERE tournament_id = $1`,
         [request.params.id]
       );
 
-      const nextRoundNumber = (lastRoundResult.rows[0].max_round || 0) + 1;
+    const nextRoundNumber = (lastRoundResult.rows[0].max_round || 0) + 1;
 
-      // Check if total rounds limit is reached
-      if (tournament.total_rounds && nextRoundNumber > tournament.total_rounds) {
+    // Check if total rounds limit is reached
+    if (tournament.total_rounds && nextRoundNumber > tournament.total_rounds) {
         return reply.status(400).send({
           error: "ValidationError",
           message: `Cannot generate more rounds. Tournament has ${tournament.total_rounds} total rounds.`
         });
       }
 
-      // Check if all matches in previous rounds have results
-      const incompleteMatchesResult = await pool.query(
+    // Check if all matches in previous rounds have results
+    const incompleteMatchesResult = await pool.query(
         `
           SELECT COUNT(*) as count FROM matches m
           JOIN rounds r ON r.id = m.round_id
@@ -1397,29 +1371,29 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      if (incompleteMatchesResult.rows[0].count > 0) {
+    if (incompleteMatchesResult.rows[0].count > 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Cannot generate new round while previous matches have no results"
         });
       }
 
-      // Generate Swiss pairings
-      const pairings = await generateSwissPairings(pool, request.params.id, nextRoundNumber, {
+    // Generate Swiss pairings
+    const pairings = await generateSwissPairings(pool, request.params.id, nextRoundNumber, {
         pairingMethod: tournament.pairing_method || "seeded_by_rating",
         roundNumber: nextRoundNumber
       });
 
-      if (pairings.length === 0) {
+    if (pairings.length === 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Unable to generate pairings - not enough players or all players dropped out"
         });
       }
 
-      // Create round with start date (default to NOW() if not provided)
-      const startsOnValue = startsOn ? new Date(startsOn).toISOString() : new Date().toISOString();
-      const roundResult = await pool.query(
+    // Create round with start date (default to NOW() if not provided)
+    const startsOnValue = startsOn ? new Date(startsOn).toISOString() : new Date().toISOString();
+    const roundResult = await pool.query(
         `
           INSERT INTO rounds (tournament_id, number, status, starts_on)
           VALUES ($1, $2, 'scheduled', $3)
@@ -1428,10 +1402,10 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id, nextRoundNumber, startsOnValue]
       );
 
-      const roundId = roundResult.rows[0].id;
+    const roundId = roundResult.rows[0].id;
 
-      // Create matches
-      for (const pairing of pairings) {
+    // Create matches
+    for (const pairing of pairings) {
         // For bye matches (blackPlayerId is null), set result to 1 (win) immediately
         const isBye = pairing.blackPlayerId === null;
         const result = isBye ? 1 : null;
@@ -1466,54 +1440,50 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         }
       }
 
-      return reply.status(201).send({
+    return reply.status(201).send({
         round: {
           id: roundId,
           number: nextRoundNumber,
           matches: pairings
         }
       });
-    } finally {
-      await pool.end();
-    }
+    
   });
 
   app.put<{ Params: { id: string }; Body: { startsOn: string } }>("/rounds/:id/starts-on", { preHandler: [conditionalRequireAuth, async (request, reply) => {
     // Resolve club from round -> tournament
-    const pool = createPool();
-    try {
-      const roundResult = await pool.query(`SELECT tournament_id FROM rounds WHERE id = $1`, [request.params.id]);
-      if (roundResult.rows.length === 0) {
+    const pool = app.pg;
+    
+    const roundResult = await pool.query(`SELECT tournament_id FROM rounds WHERE id = $1`, [request.params.id]);
+    if (roundResult.rows.length === 0) {
         return reply.status(404).send({ error: "NotFound", message: "Round not found" });
       }
-      const tournamentId = roundResult.rows[0].tournament_id;
-      const clubId = await resolveClubIdFromTournament(tournamentId);
-      if (!clubId) {
+    const tournamentId = roundResult.rows[0].tournament_id;
+    const clubId = await resolveClubIdFromTournament(pool, tournamentId);
+    if (!clubId) {
         return reply.status(404).send({ error: "NotFound", message: "Tournament not found" });
       }
-      const membership = request.user?.memberships.find(m => m.clubId === clubId);
-      if (!membership) {
+    const membership = request.user?.memberships.find(m => m.clubId === clubId);
+    if (!membership) {
         return reply.status(403).send({ error: "Forbidden", message: "You are not a member of this club" });
       }
-      if (!["owner", "admin", "organizer"].includes(membership.role)) {
+    if (!["owner", "admin", "organizer"].includes(membership.role)) {
         return reply.status(403).send({ error: "Forbidden", message: "Required role: owner, admin, or organizer" });
       }
-    } finally {
-      await pool.end();
-    }
+    
   }] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { startsOn } = request.body;
+    const pool = app.pg;
+    
+    const { startsOn } = request.body;
 
-      if (!startsOn || isNaN(Date.parse(startsOn))) {
+    if (!startsOn || isNaN(Date.parse(startsOn))) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "startsOn must be a valid date"
         });
       }
 
-      const result = await pool.query(
+    const result = await pool.query(
         `
           UPDATE rounds
           SET starts_on = $1
@@ -1523,23 +1493,21 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [startsOn, request.params.id]
       );
 
-      if (result.rows.length === 0) {
+    if (result.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Round not found"
         });
       }
 
-      return reply.status(200).send({ round: result.rows[0] });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(200).send({ round: result.rows[0] });
+    
   });
 
   app.get<{ Params: TournamentParams }>("/tournaments/:id/rounds", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const result = await pool.query(
+    const pool = app.pg;
+    
+    const result = await pool.query(
         `
           SELECT
             r.id,
@@ -1557,120 +1525,112 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      return { rounds: result.rows };
-    } finally {
-      await pool.end();
-    }
+    return { rounds: result.rows };
+    
   });
 
   app.delete<{ Params: { id: string } }>("/rounds/:id", { preHandler: [conditionalRequireAuth, async (request, reply) => {
     // Resolve club from round -> tournament
-    const pool = createPool();
-    try {
-      const roundResult = await pool.query(`SELECT tournament_id FROM rounds WHERE id = $1`, [request.params.id]);
-      if (roundResult.rows.length === 0) {
+    const pool = app.pg;
+    
+    const roundResult = await pool.query(`SELECT tournament_id FROM rounds WHERE id = $1`, [request.params.id]);
+    if (roundResult.rows.length === 0) {
         return reply.status(404).send({ error: "NotFound", message: "Round not found" });
       }
-      const tournamentId = roundResult.rows[0].tournament_id;
-      const clubId = await resolveClubIdFromTournament(tournamentId);
-      if (!clubId) {
+    const tournamentId = roundResult.rows[0].tournament_id;
+    const clubId = await resolveClubIdFromTournament(pool, tournamentId);
+    if (!clubId) {
         return reply.status(404).send({ error: "NotFound", message: "Tournament not found" });
       }
-      const membership = request.user?.memberships.find(m => m.clubId === clubId);
-      if (!membership) {
+    const membership = request.user?.memberships.find(m => m.clubId === clubId);
+    if (!membership) {
         return reply.status(403).send({ error: "Forbidden", message: "You are not a member of this club" });
       }
-      if (!["owner", "admin", "organizer"].includes(membership.role)) {
+    if (!["owner", "admin", "organizer"].includes(membership.role)) {
         return reply.status(403).send({ error: "Forbidden", message: "Required role: owner, admin, or organizer" });
       }
-    } finally {
-      await pool.end();
-    }
+    
   }] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      // Check if round exists
-      const roundResult = await pool.query(
+    const pool = app.pg;
+    
+    // Check if round exists
+    const roundResult = await pool.query(
         `SELECT r.id FROM rounds r WHERE r.id = $1`,
         [request.params.id]
       );
 
-      if (roundResult.rows.length === 0) {
+    if (roundResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Round not found"
         });
       }
 
-      // Check if any matches in the round have results (excluding bye matches)
-      const matchesWithResultsResult = await pool.query(
+    // Check if any matches in the round have results (excluding bye matches)
+    const matchesWithResultsResult = await pool.query(
         `SELECT COUNT(*) as count FROM matches WHERE round_id = $1 AND result IS NOT NULL AND black_player_id IS NOT NULL`,
         [request.params.id]
       );
 
-      if (matchesWithResultsResult.rows[0].count > 0) {
+    if (matchesWithResultsResult.rows[0].count > 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Cannot delete round with match results. Please undo match results first by setting them to null."
         });
       }
 
-      // Delete all matches associated with the round
-      await pool.query(
+    // Delete all matches associated with the round
+    await pool.query(
         `DELETE FROM matches WHERE round_id = $1`,
         [request.params.id]
       );
 
-      // Delete the round
-      await pool.query(
+    // Delete the round
+    await pool.query(
         `DELETE FROM rounds WHERE id = $1`,
         [request.params.id]
       );
 
-      return reply.status(204).send();
-    } finally {
-      await pool.end();
-    }
+    return reply.status(204).send();
+    
   });
 
   // Match result endpoints
   app.put<{ Params: { id: string }; Body: { result: number | null } }>("/matches/:id/result", { preHandler: [conditionalRequireAuth, async (request, reply) => {
     // Resolve club from match -> tournament
-    const pool = createPool();
-    try {
-      const matchResult = await pool.query(`SELECT tournament_id FROM matches WHERE id = $1`, [request.params.id]);
-      if (matchResult.rows.length === 0) {
+    const pool = app.pg;
+    
+    const matchResult = await pool.query(`SELECT tournament_id FROM matches WHERE id = $1`, [request.params.id]);
+    if (matchResult.rows.length === 0) {
         return reply.status(404).send({ error: "NotFound", message: "Match not found" });
       }
-      const tournamentId = matchResult.rows[0].tournament_id;
-      const clubId = await resolveClubIdFromTournament(tournamentId);
-      if (!clubId) {
+    const tournamentId = matchResult.rows[0].tournament_id;
+    const clubId = await resolveClubIdFromTournament(pool, tournamentId);
+    if (!clubId) {
         return reply.status(404).send({ error: "NotFound", message: "Tournament not found" });
       }
-      const membership = request.user?.memberships.find(m => m.clubId === clubId);
-      if (!membership) {
+    const membership = request.user?.memberships.find(m => m.clubId === clubId);
+    if (!membership) {
         return reply.status(403).send({ error: "Forbidden", message: "You are not a member of this club" });
       }
-      if (!["owner", "admin", "organizer"].includes(membership.role)) {
+    if (!["owner", "admin", "organizer"].includes(membership.role)) {
         return reply.status(403).send({ error: "Forbidden", message: "Required role: owner, admin, or organizer" });
       }
-    } finally {
-      await pool.end();
-    }
+    
   }] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const { result } = request.body;
+    const pool = app.pg;
+    
+    const { result } = request.body;
 
-      if (result !== null && result !== 1 && result !== 0.5 && result !== 0) {
+    if (result !== null && result !== 1 && result !== 0.5 && result !== 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "result must be 1 (white wins), 0.5 (draw), 0 (black wins), or null to undo"
         });
       }
 
-      // Get match details with tournament status
-      const matchResult = await pool.query(
+    // Get match details with tournament status
+    const matchResult = await pool.query(
         `SELECT m.id, m.tournament_id, m.white_player_id, m.black_player_id, m.club_id, m.played_on, t.status AS "tournamentStatus"
          FROM matches m
          JOIN tournaments t ON t.id = m.tournament_id
@@ -1678,25 +1638,25 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      if (matchResult.rows.length === 0) {
+    if (matchResult.rows.length === 0) {
         return reply.status(404).send({
           error: "NotFound",
           message: "Match not found"
         });
       }
 
-      const match = matchResult.rows[0];
+    const match = matchResult.rows[0];
 
-      if (match.tournamentStatus === "completed") {
+    if (match.tournamentStatus === "completed") {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Cannot update match result for completed tournament"
         });
       }
 
-      // Validate: only allow updating the player's LAST game (no games after this one with results).
-      // Bye matches are excluded since they don't affect ratings.
-      const lastGameCheckResult = await pool.query(
+    // Validate: only allow updating the player's LAST game (no games after this one with results).
+    // Bye matches are excluded since they don't affect ratings.
+    const lastGameCheckResult = await pool.query(
         `
           SELECT
             (SELECT COUNT(*) FROM matches
@@ -1709,16 +1669,16 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [match.white_player_id, request.params.id, match.played_on, match.black_player_id]
       );
 
-      const lastGameCheck = lastGameCheckResult.rows[0];
-      if (lastGameCheck.whiteGamesAfter > 0 || lastGameCheck.blackGamesAfter > 0) {
+    const lastGameCheck = lastGameCheckResult.rows[0];
+    if (lastGameCheck.whiteGamesAfter > 0 || lastGameCheck.blackGamesAfter > 0) {
         return reply.status(400).send({
           error: "ValidationError",
           message: "Can only update a player's last game. To update earlier games, rewind game by game."
         });
       }
 
-      // Update match result
-      const updatedMatchResult = await pool.query(
+    // Update match result
+    const updatedMatchResult = await pool.query(
         `
           UPDATE matches
           SET result = $1::numeric, updated_at = NOW()
@@ -1728,8 +1688,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [result, request.params.id]
       );
 
-      // Handle rating updates
-      if (result === null) {
+    // Handle rating updates
+    if (result === null) {
         // Undo: revert player ratings to stored "before" values from this match
         const matchAuditResult = await pool.query(
           `SELECT white_elo_before, black_elo_before, white_glicko_rating_before, white_glicko_rd_before, white_glicko_vol_before,
@@ -1983,36 +1943,32 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         );
       }
 
-      return reply.status(200).send({ match: updatedMatchResult.rows[0] });
-    } finally {
-      await pool.end();
-    }
+    return reply.status(200).send({ match: updatedMatchResult.rows[0] });
+    
   });
 
   app.get<{ Params: { id: string } }>("/rounds/:id/matches", { preHandler: [conditionalRequireAuth, async (request, reply) => {
     // Resolve club from round -> tournament
-    const pool = createPool();
-    try {
-      const roundResult = await pool.query(`SELECT tournament_id FROM rounds WHERE id = $1`, [request.params.id]);
-      if (roundResult.rows.length === 0) {
+    const pool = app.pg;
+    
+    const roundResult = await pool.query(`SELECT tournament_id FROM rounds WHERE id = $1`, [request.params.id]);
+    if (roundResult.rows.length === 0) {
         return reply.status(404).send({ error: "NotFound", message: "Round not found" });
       }
-      const tournamentId = roundResult.rows[0].tournament_id;
-      const clubId = await resolveClubIdFromTournament(tournamentId);
-      if (!clubId) {
+    const tournamentId = roundResult.rows[0].tournament_id;
+    const clubId = await resolveClubIdFromTournament(pool, tournamentId);
+    if (!clubId) {
         return reply.status(404).send({ error: "NotFound", message: "Tournament not found" });
       }
-      const membership = request.user?.memberships.find(m => m.clubId === clubId);
-      if (!membership) {
+    const membership = request.user?.memberships.find(m => m.clubId === clubId);
+    if (!membership) {
         return reply.status(403).send({ error: "Forbidden", message: "You are not a member of this club" });
       }
-    } finally {
-      await pool.end();
-    }
+    
   }] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const result = await pool.query(
+    const pool = app.pg;
+    
+    const result = await pool.query(
         `
           SELECT
             m.id,
@@ -2032,17 +1988,15 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      return { matches: result.rows };
-    } finally {
-      await pool.end();
-    }
+    return { matches: result.rows };
+    
   });
 
   // Standings endpoint with Swiss tiebreakers
   app.get<{ Params: TournamentParams }>("/tournaments/:id/standings", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
-    const pool = createPool();
-    try {
-      const result = await pool.query(
+    const pool = app.pg;
+    
+    const result = await pool.query(
         `
           SELECT
             tp.player_id AS "playerId",
@@ -2072,14 +2026,14 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         [request.params.id]
       );
 
-      // Calculate tiebreakers (Buchholz, Sonneborn-Berger)
-      const standings = result.rows.map((row) => ({
+    // Calculate tiebreakers (Buchholz, Sonneborn-Berger)
+    const standings = result.rows.map((row) => ({
         ...row,
         buchholz: 0,
         sonnebornBerger: 0
       }));
 
-      for (const standing of standings) {
+    for (const standing of standings) {
         const opponentsResult = await pool.query(
           `
             SELECT
@@ -2127,7 +2081,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         standing.sonnebornBerger = sonnebornBerger;
       }
 
-      // Sort by points, then Buchholz, then Sonneborn-Berger, then ELO
+    // Sort by points, then Buchholz, then Sonneborn-Berger, then ELO
       standings.sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
         if (b.buchholz !== a.buchholz) return b.buchholz - a.buchholz;
@@ -2135,10 +2089,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         return b.elo - a.elo;
       });
 
-      return { standings };
-    } finally {
-      await pool.end();
-    }
+    return { standings };
+    
   });
 
   return app;

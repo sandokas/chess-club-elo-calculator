@@ -1,5 +1,5 @@
 import { type FastifyInstance } from "fastify";
-import { createPool } from "@chess-club/db";
+
 import { ratingConfig } from "@chess-club/config";
 import {
   parsePaginationParams,
@@ -67,8 +67,8 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
   app.post<{ Params: ClubParams; Body: CreatePlayerBody }>(
     "/clubs/:clubId/players",
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         const { displayName } = request.body;
 
         if (!displayName || displayName.trim() === "") {
@@ -117,17 +117,15 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
         );
 
         return reply.status(201).send({ player: result.rows[0] });
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 
   app.delete<{ Params: ClubPlayerParams }>(
     "/clubs/:clubId/players/:playerId",
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         // Check if player belongs to club
         const playerResult = await pool.query(
           `SELECT id FROM players WHERE id = $1 AND club_id = $2`,
@@ -161,17 +159,15 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
         );
 
         return reply.status(204).send();
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 
   app.get<{ Params: ClubParams; Querystring: PlayersQuerystring }>(
     "/clubs/:clubId/players",
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         const { page, limit } = parsePaginationParams(request.query);
         const { sortBy, sortOrder } = parseSortParams(request.query, allowedSortColumns);
 
@@ -301,15 +297,13 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
             totalPages
           }
         };
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 
   app.get<{ Params: PlayerParams }>("/players/:id", async (request) => {
-    const pool = createPool();
-    try {
+    const pool = app.pg;
+    
       const playerResult = await pool.query(
         `
           SELECT
@@ -384,16 +378,14 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
         player,
         matches: matchesResult.rows
       };
-    } finally {
-      await pool.end();
-    }
+    
   });
 
   app.put<{ Params: PlayerParams; Body: UpdatePlayerBody }>(
     "/players/:id",
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         const { displayName, active } = request.body;
 
         if (displayName !== undefined && displayName.trim() === "") {
@@ -444,9 +436,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
         }
 
         return reply.status(200).send({ player: result.rows[0] });
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 }

@@ -1,5 +1,5 @@
 import { type FastifyInstance } from "fastify";
-import { createPool } from "@chess-club/db";
+
 import { randomBytes } from "node:crypto";
 import { hashSessionToken } from "../lib/auth/cookies.js";
 import { requireClubRole } from "../lib/auth/rbac.js";
@@ -22,8 +22,8 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
       ]
     },
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         const { email, role = "member" } = request.body;
         const { clubId } = request.params;
 
@@ -69,9 +69,7 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
           // Only return the actual token for the first response (for testing/email)
           token: token
         });
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 
@@ -89,8 +87,8 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
       ]
     },
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         const { clubId } = request.params;
 
         const result = await pool.query(
@@ -102,9 +100,7 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
         );
 
         return { invites: result.rows };
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 
@@ -121,8 +117,8 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
       ]
     },
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         const { clubId } = request.params;
         const { message } = request.body;
 
@@ -161,9 +157,7 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
         );
 
         return reply.status(201).send({ joinRequest: result.rows[0] });
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 
@@ -181,8 +175,8 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
       ]
     },
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         const { clubId } = request.params;
 
         const result = await pool.query(
@@ -195,9 +189,7 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
         );
 
         return { joinRequests: result.rows };
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 
@@ -215,10 +207,17 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
       ]
     },
     async (request, reply) => {
-      const pool = createPool();
-      try {
+      const pool = app.pg;
+      
         const { clubId, id } = request.params;
         const { action, playerId } = request.body;
+
+        if (action !== "accept" && action !== "reject") {
+          return reply.status(400).send({
+            error: "ValidationError",
+            message: "action must be 'accept' or 'reject'"
+          });
+        }
 
         // Get the join request
         const requestResult = await pool.query(
@@ -310,9 +309,7 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
           error: "ValidationError",
           message: "action must be 'accept' or 'reject'"
         });
-      } finally {
-        await pool.end();
-      }
+      
     }
   );
 }

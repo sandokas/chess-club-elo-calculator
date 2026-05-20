@@ -1,3 +1,4 @@
+import type { Pool } from "pg";
 import { OAuth2Client } from "google-auth-library";
 import { loadEnv } from "@chess-club/config";
 import { randomBytes } from "node:crypto";
@@ -84,43 +85,37 @@ export async function exchangeCodeForTokens(
 /**
  * Find or create user from Google OAuth info
  */
-export async function findOrCreateUser(googleUser: GoogleUserInfo): Promise<{ userId: string; isNewUser: boolean }> {
-  const { createPool } = await import("@chess-club/db");
-  const pool = createPool();
-  try {
-    // Check if auth identity exists
-    const identityResult = await pool.query(
-      `SELECT user_id FROM auth_identities WHERE provider = 'google' AND provider_subject = $1`,
-      [googleUser.sub]
-    );
+export async function findOrCreateUser(pool: Pool, googleUser: GoogleUserInfo): Promise<{ userId: string; isNewUser: boolean }> {
+  // Check if auth identity exists
+  const identityResult = await pool.query(
+    `SELECT user_id FROM auth_identities WHERE provider = 'google' AND provider_subject = $1`,
+    [googleUser.sub]
+  );
 
-    if (identityResult.rows.length > 0) {
-      return { userId: identityResult.rows[0].user_id, isNewUser: false };
-    }
-
-    // Create new user
-    const userResult = await pool.query(
-      `INSERT INTO users (email, name, email_verified) VALUES ($1, $2, $3) RETURNING id`,
-      [googleUser.email, googleUser.name, googleUser.email_verified]
-    );
-
-    const userId = userResult.rows[0].id;
-
-    // Create auth identity
-    await pool.query(
-      `INSERT INTO auth_identities (user_id, provider, provider_subject, email) VALUES ($1, 'google', $2, $3)`,
-      [userId, googleUser.sub, googleUser.email]
-    );
-
-    // Check for bootstrap owner promotion
-    if (env.BOOTSTRAP_OWNER_EMAIL && env.BOOTSTRAP_OWNER_EMAIL.toLowerCase() === googleUser.email.toLowerCase()) {
-      await promoteToOwnerOfAllClubs(userId, pool);
-    }
-
-    return { userId, isNewUser: true };
-  } finally {
-    await pool.end();
+  if (identityResult.rows.length > 0) {
+    return { userId: identityResult.rows[0].user_id, isNewUser: false };
   }
+
+  // Create new user
+  const userResult = await pool.query(
+    `INSERT INTO users (email, name, email_verified) VALUES ($1, $2, $3) RETURNING id`,
+    [googleUser.email, googleUser.name, googleUser.email_verified]
+  );
+
+  const userId = userResult.rows[0].id;
+
+  // Create auth identity
+  await pool.query(
+    `INSERT INTO auth_identities (user_id, provider, provider_subject, email) VALUES ($1, 'google', $2, $3)`,
+    [userId, googleUser.sub, googleUser.email]
+  );
+
+  // Check for bootstrap owner promotion
+  if (env.BOOTSTRAP_OWNER_EMAIL && env.BOOTSTRAP_OWNER_EMAIL.toLowerCase() === googleUser.email.toLowerCase()) {
+    await promoteToOwnerOfAllClubs(userId, pool);
+  }
+
+  return { userId, isNewUser: true };
 }
 
 /**
