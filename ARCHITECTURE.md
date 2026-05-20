@@ -13,6 +13,9 @@ This repository contains a TypeScript web application for chess club management.
 
 PostgreSQL is the production database. Drizzle schema files are the TypeScript source of truth and Drizzle Kit SQL migrations are the versioned database change mechanism.
 
+**API Database Access**
+The API uses Drizzle ORM via a Fastify plugin (`apps/api/src/plugins/db.ts`). The plugin decorates the Fastify app with `app.db`, providing a single Drizzle Db instance for all request handlers. This ensures exactly one pg.Pool per process, managed centrally by the plugin. Raw SQL is permitted only via `app.db.execute(sql`…`)` with parameterized placeholders; never via string concatenation of user input.
+
 The first schema is multi-club from the start:
 
 - `users`, `auth_identities`, `sessions`

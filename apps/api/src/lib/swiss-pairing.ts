@@ -1,4 +1,8 @@
-import { Pool } from "pg";
+import type { Db } from "@chess-club/db";
+import { schema } from "@chess-club/db";
+import { and, eq, isNull, isNotNull, lt, or, gte, sql } from "drizzle-orm";
+
+const { players: playersTable, playerRatings, tournamentPlayers, matches, rounds } = schema;
 
 /**
  * FIDE Dutch System Swiss pairing implementation.
@@ -57,12 +61,12 @@ const MAX_COLOR_DIFF = 2;
 // ---------------------------------------------------------------------------
 
 export async function generateSwissPairings(
-  pool: Pool,
+  db: Db,
   tournamentId: string,
   roundNumber: number,
   options: SwissPairingOptions
 ): Promise<Match[]> {
-  const players = await loadPlayers(pool, tournamentId, roundNumber);
+  const players = await loadPlayers(db, tournamentId, roundNumber);
 
   if (roundNumber === 1) {
     return generateFirstRoundPairings(players, options);
@@ -75,58 +79,52 @@ export async function generateSwissPairings(
 // ---------------------------------------------------------------------------
 
 async function loadPlayers(
-  pool: Pool,
+  db: Db,
   tournamentId: string,
   roundNumber: number
 ): Promise<Player[]> {
-  const playersResult = await pool.query(
-    `
-      SELECT
-        tp.player_id AS "playerId",
-        p.display_name AS "displayName",
-        pr.elo,
-        tp.white_count AS "whiteCount",
-        tp.black_count AS "blackCount",
-        tp.dropped_out_round AS "droppedOutRound"
-      FROM tournament_players tp
-      JOIN players p ON p.id = tp.player_id
-      JOIN player_ratings pr ON pr.player_id = tp.player_id
-      WHERE tp.tournament_id = $1
-        AND (tp.dropped_out_round IS NULL OR tp.dropped_out_round >= $2)
-    `,
-    [tournamentId, roundNumber]
-  );
+  const playersResult = await db.select({
+    playerId: tournamentPlayers.playerId,
+    displayName: playersTable.displayName,
+    elo: playerRatings.elo,
+    whiteCount: tournamentPlayers.whiteCount,
+    blackCount: tournamentPlayers.blackCount,
+    droppedOutRound: tournamentPlayers.droppedOutRound,
+  }).from(tournamentPlayers)
+    .innerJoin(playersTable, eq(playersTable.id, tournamentPlayers.playerId))
+    .innerJoin(playerRatings, eq(playerRatings.playerId, tournamentPlayers.playerId))
+    .where(and(
+      eq(tournamentPlayers.tournamentId, tournamentId),
+      or(isNull(tournamentPlayers.droppedOutRound), gte(tournamentPlayers.droppedOutRound, roundNumber))
+    ));
 
   const players: Player[] = [];
 
-  for (const row of playersResult.rows) {
-    const matchHistoryResult = await pool.query(
-      `
-        SELECT
-          m.white_player_id AS "whitePlayerId",
-          m.black_player_id AS "blackPlayerId",
-          m.result,
-          r.number AS "roundNumber"
-        FROM matches m
-        JOIN rounds r ON r.id = m.round_id
-        WHERE m.tournament_id = $1
-          AND (m.white_player_id = $2 OR m.black_player_id = $2)
-          AND m.result IS NOT NULL
-          AND r.number < $3
-        ORDER BY r.number ASC
-      `,
-      [tournamentId, row.playerId, roundNumber]
-    );
+  for (const row of playersResult) {
+    const matchHistoryResult = await db.select({
+      whitePlayerId: matches.whitePlayerId,
+      blackPlayerId: matches.blackPlayerId,
+      result: matches.result,
+      roundNumber: rounds.number,
+    }).from(matches)
+      .innerJoin(rounds, eq(rounds.id, matches.roundId))
+      .where(and(
+        eq(matches.tournamentId, tournamentId),
+        or(eq(matches.whitePlayerId, row.playerId), eq(matches.blackPlayerId, row.playerId)),
+        isNotNull(matches.result),
+        lt(rounds.number, roundNumber)
+      ))
+      .orderBy(rounds.number);
 
     let points = 0;
     let hadBye = false;
     const opponents = new Set<string>();
     const colorHistory: Color[] = [];
 
-    for (const m of matchHistoryResult.rows) {
+    for (const m of matchHistoryResult) {
       const isBye = m.blackPlayerId === null;
       const isWhite = m.whitePlayerId === row.playerId;
-      const result = parseFloat(m.result);
+      const result = parseFloat(m.result as unknown as string);
 
       // Points: from white's perspective, result is the score (1/0.5/0).
       if (isWhite) {
@@ -139,7 +137,7 @@ async function loadPlayers(
         hadBye = true;
         // Bye matches do NOT contribute to colorHistory or opponents.
       } else {
-        opponents.add(isWhite ? m.blackPlayerId : m.whitePlayerId);
+        opponents.add(isWhite ? m.blackPlayerId! : m.whitePlayerId);
         colorHistory.push(isWhite ? "W" : "B");
       }
     }
@@ -171,20 +169,17 @@ async function loadPlayers(
     }
     // SB: sum of opponents' points for wins + half for draws.
     // We don't have per-opponent results easily here; recompute by scanning matches.
-    const sbRows = await pool.query(
-      `
-        SELECT
-          CASE WHEN m.white_player_id = $1 THEN m.black_player_id ELSE m.white_player_id END AS "opponentId",
-          CASE WHEN m.white_player_id = $1 THEN m.result ELSE 1 - m.result END AS "scoreFromOurSide"
-        FROM matches m
-        WHERE m.tournament_id = $2
-          AND (m.white_player_id = $1 OR m.black_player_id = $1)
-          AND m.result IS NOT NULL
-          AND m.black_player_id IS NOT NULL
-      `,
-      [player.id, tournamentId]
-    );
-    for (const row of sbRows.rows) {
+    const sbRows = await db.select({
+      opponentId: sql<string>`CASE WHEN ${matches.whitePlayerId} = ${player.id} THEN ${matches.blackPlayerId} ELSE ${matches.whitePlayerId} END`,
+      scoreFromOurSide: sql<string>`CASE WHEN ${matches.whitePlayerId} = ${player.id} THEN ${matches.result} ELSE 1 - ${matches.result} END`,
+    }).from(matches)
+      .where(and(
+        eq(matches.tournamentId, tournamentId),
+        or(eq(matches.whitePlayerId, player.id), eq(matches.blackPlayerId, player.id)),
+        isNotNull(matches.result),
+        isNotNull(matches.blackPlayerId)
+      ));
+    for (const row of sbRows) {
       const oppPts = pointsById.get(row.opponentId) ?? 0;
       const s = parseFloat(row.scoreFromOurSide);
       if (s === 1) sb += oppPts;

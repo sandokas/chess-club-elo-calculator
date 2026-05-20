@@ -30,6 +30,10 @@ This is non-negotiable. If you find yourself about to copy a value, a helper, a 
 
 - Magic numbers in SQL strings or app code that exist elsewhere are a bug. Parameterize them and read from the single source.
 
+### Database connection lifecycle
+
+- Exactly one pg.Pool per process. Never call createPool() inside a request handler. The Fastify db plugin in apps/api/src/plugins/db.ts is the single source of truth for pool lifecycle.
+
 ---
 
 ## When debugging rating/ELO inconsistencies
@@ -60,7 +64,7 @@ Do not add the value anywhere else.
 - **Package manager:** pnpm only. Never npm or yarn.
 - **Dependency installation:** Prefer explicit dependency installation (`pnpm add`) over one-off execution tools like `pnpm dlx` or `npx`. Use `pnpm exec` for running binaries to ensure all executed code is versioned, reviewable, and reproducible via lockfiles.
 - **Services:** run via `docker compose up -d`. Don't run `pnpm --filter web build` while compose is up (breaks volume-mounted `node_modules`).
-- **DB access:** API uses direct PostgreSQL queries via a connection pool from `@chess-club/db`.
+- **DB access:** API uses Drizzle ORM via the `db` Fastify decorator (app.db). Raw SQL is permitted only inside db.execute(sql`…`) with parameterized placeholders; never via string concatenation of user input.
 - **Backups:** Postgres dumps go in the gitignored `backups/` folder with timestamped filenames. See `OPERATIONS.md`.
 - **API routing:** top-level resources use `/players/:id`; nested resources use descriptive names like `/clubs/:clubId/players`.
 

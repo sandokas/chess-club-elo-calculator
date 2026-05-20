@@ -41,7 +41,7 @@ chess-club/
 - `GET /tournaments/:id` - Tournament detail (matches, standings)
 - `GET /players/:id` - Player detail (info, recent matches, rating history)
 
-**Database Access**: Direct PostgreSQL queries via connection pooling
+**Database Access**: Drizzle ORM via the `db` Fastify decorator (app.db). The db plugin in `src/plugins/db.ts` manages a single pg.Pool per process. Raw SQL is permitted only via `app.db.execute(sql`…`)` with parameterized placeholders.
 
 **Dependencies**:
 - Fastify - Web framework

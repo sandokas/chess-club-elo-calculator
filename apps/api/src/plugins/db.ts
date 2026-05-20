@@ -11,7 +11,6 @@ export default fp(async (app, options: DbPluginOptions = {}) => {
   const pool = options.pool ?? createPool();
   const db = options.db ?? createDb(pool);
 
-  app.decorate("pg", pool);
   app.decorate("db", db);
 
   let closed = false;
