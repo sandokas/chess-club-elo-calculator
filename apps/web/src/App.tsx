@@ -3,7 +3,6 @@ import { Routes, Route, Link, useParams, useNavigate, useSearchParams } from "re
 import { Header } from "./components/layout/header.js";
 import { SkipLink } from "./components/ui/skip-link.js";
 import { RequireAuth } from "./components/auth/require-auth.js";
-import { UserHeader } from "./components/auth/user-header.js";
 import { StatusCard } from "./components/shared/status-card.js";
 import { StatCard } from "./components/shared/stat-card.js";
 import { BackButton } from "./components/shared/back-button.js";
@@ -108,7 +107,6 @@ export function App() {
     <div className="min-h-screen bg-background">
       <SkipLink />
       <Header />
-      <UserHeader />
       <main id="main-content" className="container mx-auto p-4 sm:p-6" tabIndex={-1}>
         <RequireAuth>
           <Routes>

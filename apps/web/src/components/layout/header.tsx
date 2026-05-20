@@ -2,6 +2,7 @@ import { Crown } from "lucide-react";
 import { ThemeSwitcher } from "./theme-switcher.js";
 import { ColorPaletteSwitcher } from "./color-palette-switcher.js";
 import { ClubSelector } from "@/components/club/club-selector.js";
+import { UserMenu } from "@/components/auth/user-menu.js";
 
 export function Header() {
   return (
@@ -17,6 +18,7 @@ export function Header() {
           <ClubSelector />
           <ColorPaletteSwitcher />
           <ThemeSwitcher />
+          <UserMenu />
         </div>
       </div>
     </header>
