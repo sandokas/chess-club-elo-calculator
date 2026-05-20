@@ -65,6 +65,7 @@ Do not add the value anywhere else.
 - **Dependency installation:** Prefer explicit dependency installation (`pnpm add`) over one-off execution tools like `pnpm dlx` or `npx`. Use `pnpm exec` for running binaries to ensure all executed code is versioned, reviewable, and reproducible via lockfiles.
 - **Services:** run via `docker compose up -d`. Don't run `pnpm --filter web build` while compose is up (breaks volume-mounted `node_modules`).
 - **DB access:** API uses Drizzle ORM via the `db` Fastify decorator (app.db). Raw SQL is permitted only inside db.execute(sql`…`) with parameterized placeholders; never via string concatenation of user input.
+- **LIKE on user input:** always wrap the user-supplied value with `escapeLikePattern()` from `apps/api/src/lib/validators.ts` and add an explicit `ESCAPE '\\'` clause. Never inline `${"%" + value + "%"}` raw — it allows LIKE wildcard injection (a user-supplied `%` or `_` broadens the match). **Do not use `ILIKE`** on the `name`/`display_name` columns: they use the `und_ai_ci` nondeterministic collation, which Postgres rejects for `ILIKE`. Plain `LIKE` on those columns is already case + accent insensitive thanks to the collation — that is the intended behaviour.
 - **Backups:** Postgres dumps go in the gitignored `backups/` folder with timestamped filenames. See `OPERATIONS.md`.
 - **API routing:** top-level resources use `/players/:id`; nested resources use descriptive names like `/clubs/:clubId/players`.
 

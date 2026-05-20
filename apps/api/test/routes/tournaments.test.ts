@@ -180,4 +180,76 @@ describe("tournament routes", () => {
       expect(response.statusCode).toBe(404);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // GET /clubs/:clubId/tournaments — name filter security & semantics
+  // ---------------------------------------------------------------------------
+  describe("GET /clubs/:clubId/tournaments name filter", () => {
+    it("matches accented names case + accent insensitively via collation", async () => {
+      const club = await seedClub(testApp.db);
+      await seedTournament(testApp.db, { clubId: club.id, name: "Café Open" });
+      await seedTournament(testApp.db, { clubId: club.id, name: "Winter Cup" });
+
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent("cafe")}`
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.tournaments).toHaveLength(1);
+      expect(body.tournaments[0].name).toBe("Café Open");
+    });
+
+    it("treats `%` in the query as a literal, not a wildcard (LIKE injection)", async () => {
+      const club = await seedClub(testApp.db);
+      await seedTournament(testApp.db, { clubId: club.id, name: "50% Discount Open" });
+      await seedTournament(testApp.db, { clubId: club.id, name: "Plain Open" });
+
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent("50%")}`
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.tournaments).toHaveLength(1);
+      expect(body.tournaments[0].name).toBe("50% Discount Open");
+    });
+
+    // Diverse SQLi / wildcard-injection payloads. We don't enumerate every
+    // imaginable string; we exercise representatives of every category to
+    // prove the mechanism (parameter binding + LIKE escape + ESCAPE clause)
+    // makes ALL such inputs inert literal text.
+    const sqliPayloads: Array<[string, string]> = [
+      ["tautology with quote-break",     "' OR '1'='1"],
+      ["numeric tautology",              "' OR 2=2--"],
+      ["comment terminator",             "'; DROP TABLE tournaments;--"],
+      ["UNION extraction",               "' UNION SELECT password_hash FROM users--"],
+      ["stacked query",                  "Cup'; DELETE FROM tournaments WHERE 't'='t"],
+      ["backslash escape-break attempt", "Cup\\' OR 1=1--"],
+      ["pure wildcards",                 "%%%"],
+      ["mixed wildcards + tautology",    "%' OR '1'='1--"],
+      ["LIKE pattern hijack with _",     "_____"],
+      ["escape-clause neutralisation",   "\\% OR 1=1"]
+    ];
+
+    it.each(sqliPayloads)(
+      "renders SQLi payload (%s) inert — treated as literal LIKE pattern",
+      async (_label, payload) => {
+        const club = await seedClub(testApp.db);
+        await seedTournament(testApp.db, { clubId: club.id, name: "Winter Cup" });
+        await seedTournament(testApp.db, { clubId: club.id, name: "Summer Open" });
+
+        const response = await testApp.app.inject({
+          method: "GET",
+          url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent(payload)}`
+        });
+
+        expect(response.statusCode).toBe(200);
+        const body = response.json();
+        expect(body.tournaments).toHaveLength(0);
+      }
+    );
+  });
 });

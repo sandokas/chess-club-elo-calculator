@@ -3,6 +3,7 @@ import {
   parsePaginationParams,
   parseSortParams,
   parseStringFilter,
+  escapeLikePattern,
   parseBooleanFilter,
   parseNumberFilter,
   parseDateFilter,
@@ -60,6 +61,49 @@ describe("parseStringFilter", () => {
   it("returns value when provided", () => {
     expect(parseStringFilter("test")).toBe("test");
     expect(parseStringFilter("  test  ")).toBe("  test  ");
+  });
+
+  it("caps the value at the defensive max length (100)", () => {
+    const long = "a".repeat(500);
+    const result = parseStringFilter(long);
+    expect(result).toHaveLength(100);
+    expect(result).toBe("a".repeat(100));
+  });
+});
+
+describe("escapeLikePattern", () => {
+  it("returns empty string unchanged", () => {
+    expect(escapeLikePattern("")).toBe("");
+  });
+
+  it("returns plain alphanumerics unchanged", () => {
+    expect(escapeLikePattern("plain")).toBe("plain");
+    expect(escapeLikePattern("Café René")).toBe("Café René");
+  });
+
+  it("escapes percent sign", () => {
+    expect(escapeLikePattern("50%")).toBe("50\\%");
+  });
+
+  it("escapes underscore", () => {
+    expect(escapeLikePattern("a_b")).toBe("a\\_b");
+  });
+
+  it("escapes backslash", () => {
+    expect(escapeLikePattern("back\\slash")).toBe("back\\\\slash");
+  });
+
+  it("escapes backslash before %/_ so result is unambiguous", () => {
+    // Input: %_\  →  \% \_ \\   (in that exact order so the trailing \\
+    // can't accidentally combine with anything to its right)
+    expect(escapeLikePattern("%_\\")).toBe("\\%\\_\\\\");
+  });
+
+  it("renders SQLi payloads as harmless literal text", () => {
+    // No quotes, semicolons, or comment markers are touched — those are
+    // already neutralised by Drizzle's parameter binding. Only LIKE
+    // metacharacters need escaping.
+    expect(escapeLikePattern("' OR '1'='1")).toBe("' OR '1'='1");
   });
 });
 

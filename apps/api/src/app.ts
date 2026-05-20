@@ -7,6 +7,7 @@ import { registerPlayerRoutes } from "./routes/players.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerInviteRoutes } from "./routes/invites.js";
 import { asHttpError, createErrorResponse } from "./lib/errors.js";
+import { parseStringFilter, escapeLikePattern } from "./lib/validators.js";
 import { generateSwissPairings } from "./lib/swiss-pairing.js";
 import { recomputeRatings, applyRatedMatch, type MatchInput, type RatingProfile } from "./lib/ratings/ratings.js";
 import { attachUser, requireAuth, requireClubRole, requireTournamentClubRole, requirePlayerClubRole, resolveClubIdFromTournament } from "./lib/auth/rbac.js";
@@ -337,8 +338,11 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     const sortOrder = (request.query.sortOrder === 'asc' || request.query.sortOrder === 'desc') ? request.query.sortOrder : 'desc';
 
     const filters = [];
-    if (request.query.name) {
-      filters.push(sql`LOWER(${tournaments.name}) LIKE ${`%${request.query.name.toLowerCase()}%`}`);
+    const tname = parseStringFilter(request.query.name);
+    if (tname) {
+      filters.push(
+        sql`${tournaments.name} LIKE ${`%${escapeLikePattern(tname)}%`} ESCAPE '\\'`
+      );
     }
     if (request.query.status) {
       const validStatuses = ['draft', 'active', 'completed'];
@@ -395,7 +399,21 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
       ))
       .groupBy(tournaments.id)
       .orderBy(
-        sortOrder === 'asc' ? asc(sql.raw(sortBy === 'playerCount' ? 'player_count' : sortBy === 'matchCount' ? 'match_count' : sortBy)) : desc(sql.raw(sortBy === 'playerCount' ? 'player_count' : sortBy === 'matchCount' ? 'match_count' : sortBy)),
+        (() => {
+          // Map camelCase sortBy values to their snake_case DB column names.
+          // sortBy is already validated against allowedSortColumns above, so
+          // sql.raw() here is safe from injection — every reachable value is
+          // a hardcoded literal from this map.
+          const columnMap: Record<string, string> = {
+            name: 'name',
+            startsOn: 'starts_on',
+            status: 'status',
+            playerCount: 'player_count',
+            matchCount: 'match_count'
+          };
+          const column = columnMap[sortBy] ?? 'starts_on';
+          return sortOrder === 'asc' ? asc(sql.raw(column)) : desc(sql.raw(column));
+        })(),
         asc(tournaments.name)
       )
       .limit(limit)

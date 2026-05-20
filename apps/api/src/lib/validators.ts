@@ -32,11 +32,30 @@ export function parseSortParams(
   return { sortBy, sortOrder };
 }
 
+/** Max length for free-text query filters (defensive cap against pathological inputs). */
+const MAX_FILTER_LENGTH = 100;
+
 /**
- * Validates a string filter parameter
+ * Validates a string filter parameter and applies a defensive length cap.
+ * Returns the raw value (no SQL/LIKE escaping). Callers that interpolate this
+ * value into a LIKE pattern MUST also pass it through `escapeLikePattern()`
+ * and use an explicit `ESCAPE '\\'` clause.
  */
 export function parseStringFilter(value: string | undefined): string {
-  return value || "";
+  if (!value) return "";
+  return value.slice(0, MAX_FILTER_LENGTH);
+}
+
+/**
+ * Escape PostgreSQL LIKE/ILIKE metacharacters (\, %, _) in a user-supplied
+ * search string so they are matched literally. Must be paired with an
+ * explicit `ESCAPE '\\'` clause in the SQL.
+ *
+ * Order matters: the backslash MUST be escaped first so the subsequent
+ * `%`/`_` substitutions don't double-escape its own replacement.
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/[%_]/g, "\\$&");
 }
 
 /**

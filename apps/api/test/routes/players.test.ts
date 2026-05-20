@@ -223,6 +223,129 @@ describe("player routes", () => {
       expect(body.players.map((p: { displayName: string }) => p.displayName)).toContain("Alfred");
     });
 
+    it("matches accented names case + accent insensitively via collation", async () => {
+      const club = await seedClub(testApp.db);
+      await seedPlayer(testApp.db, { clubId: club.id, displayName: "Café René" });
+      await seedPlayer(testApp.db, { clubId: club.id, displayName: "Plain Jane" });
+
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: `/clubs/${club.id}/players?name=${encodeURIComponent("cafe rene")}`
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.players).toHaveLength(1);
+      expect(body.players[0].displayName).toBe("Café René");
+    });
+
+    it("treats `%` in the query as a literal, not a wildcard (LIKE injection)", async () => {
+      const club = await seedClub(testApp.db);
+      await seedPlayer(testApp.db, { clubId: club.id, displayName: "50% off" });
+      await seedPlayer(testApp.db, { clubId: club.id, displayName: "plain" });
+
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: `/clubs/${club.id}/players?name=${encodeURIComponent("50%")}`
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.players).toHaveLength(1);
+      expect(body.players[0].displayName).toBe("50% off");
+    });
+
+    it("treats `_` in the query as a literal, not a single-char wildcard", async () => {
+      const club = await seedClub(testApp.db);
+      await seedPlayer(testApp.db, { clubId: club.id, displayName: "a_b" });
+      await seedPlayer(testApp.db, { clubId: club.id, displayName: "axb" });
+
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: `/clubs/${club.id}/players?name=${encodeURIComponent("a_b")}`
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.players).toHaveLength(1);
+      expect(body.players[0].displayName).toBe("a_b");
+    });
+
+    // The fix relies on two layers: (1) Drizzle parameter binding so payloads
+    // never reach the SQL parser as code, and (2) escapeLikePattern() + ESCAPE
+    // clause so LIKE metacharacters in the bound value cannot widen the match.
+    // We don't enumerate every imaginable payload — we exercise diverse
+    // representatives of every injection category to prove the mechanism, not
+    // string-match specific strings.
+    const sqliPayloads: Array<[string, string]> = [
+      ["tautology with quote-break",     "' OR '1'='1"],
+      ["numeric tautology",              "' OR 2=2--"],
+      ["comment terminator",             "'; DROP TABLE players;--"],
+      ["UNION extraction",               "' UNION SELECT password_hash FROM users--"],
+      ["stacked query",                  "Alice'; DELETE FROM players WHERE 't'='t"],
+      ["boolean-blind",                  "Alice' AND SUBSTR(email,1,1)='a"],
+      ["backslash escape-break attempt", "Alice\\' OR 1=1--"],
+      ["pure wildcards",                 "%%%"],
+      ["mixed wildcards + tautology",    "%' OR '1'='1--"],
+      ["LIKE pattern hijack with _",     "_____"],
+      ["escape-clause neutralisation",   "\\% OR 1=1"]
+    ];
+
+    it.each(sqliPayloads)(
+      "renders SQLi payload (%s) inert — treated as literal LIKE pattern",
+      async (_label, payload) => {
+        const club = await seedClub(testApp.db);
+        await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice" });
+        await seedPlayer(testApp.db, { clubId: club.id, displayName: "Bob" });
+
+        const response = await testApp.app.inject({
+          method: "GET",
+          url: `/clubs/${club.id}/players?name=${encodeURIComponent(payload)}`
+        });
+
+        // 200 (request succeeded — no SQL syntax error escaped the bind)
+        // AND 0 results (the literal payload string does not appear inside
+        // any seeded display name). If even one assertion fails, either
+        // parameter binding leaked or the LIKE wildcards weren't escaped.
+        expect(response.statusCode).toBe(200);
+        const body = response.json();
+        expect(body.players).toHaveLength(0);
+      }
+    );
+
+    it("preserves literal match when the payload IS a substring of a seeded name", async () => {
+      // Sanity counterpart: prove the previous tests would fail if the literal
+      // payload actually appeared in a row. This rules out "test passes because
+      // search is broken" as the cause.
+      const club = await seedClub(testApp.db);
+      await seedPlayer(testApp.db, { clubId: club.id, displayName: "weird ' OR '1'='1 name" });
+
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: `/clubs/${club.id}/players?name=${encodeURIComponent("' OR '1'='1")}`
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.players).toHaveLength(1);
+      expect(body.players[0].displayName).toBe("weird ' OR '1'='1 name");
+    });
+
+    it("accepts a very long name query (length cap, no error)", async () => {
+      const club = await seedClub(testApp.db);
+      await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice" });
+
+      const longName = "a".repeat(500);
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: `/clubs/${club.id}/players?name=${longName}`
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.players).toHaveLength(0);
+    });
+
     it("filters by active status", async () => {
       const club = await seedClub(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice", active: true });

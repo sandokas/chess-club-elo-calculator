@@ -6,6 +6,7 @@ import {
   parsePaginationParams,
   parseSortParams,
   parseStringFilter,
+  escapeLikePattern,
   parseBooleanFilter,
   parseNumberFilter,
   parseDateFilter
@@ -179,7 +180,9 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
 
       const name = parseStringFilter(request.query.name);
       if (name) {
-        conditions.push(sql`${players.displayName} LIKE ${"%" + name + "%"}`);
+        conditions.push(
+          sql`${players.displayName} LIKE ${`%${escapeLikePattern(name)}%`} ESCAPE '\\'`
+        );
       }
 
       const active = parseBooleanFilter(request.query.active);
