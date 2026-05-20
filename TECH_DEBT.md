@@ -45,6 +45,23 @@ Add new items under `Open Items` when work is deliberately postponed. Each item 
 - **Future fix**: Keep Node services running as the built-in `node` user and keep package-manager cache/store paths under `/home/node`. Consider moving Vite cache/temp output outside bind-mounted `node_modules` if this remains noisy.
 - **Trigger**: If root-owned or container-owned generated files reappear, or if local/host builds continue to conflict with container-generated caches.
 
+### Test isolation via TRUNCATE (vs. transactional rollback)
+
+- **Status**: open
+- **Context**: `apps/api/test/setup.ts` wipes every app table in a global `beforeEach` using `TRUNCATE ... RESTART IDENTITY CASCADE`. Each test starts from an empty database. See `TESTING.md`.
+- **Risk**: Each test pays ~30 ms for the wipe. Negligible today (~15 s total suite) but a per-test transactional rollback would be ~1 ms.
+- **Future fix**: Switch to per-test transactional isolation (open a transaction in `beforeEach`, roll back in `afterEach`). Requires every route under test to use the same connection/transaction — i.e. all routes on `app.db` (Drizzle) with a per-request transaction context. Currently routes mix `app.pg` (raw `pg.Pool`) and `app.db` and would not participate in a shared transaction.
+- **Trigger**: After all routes under `apps/api/src/routes/**` are migrated to `app.db`. Then add a per-request transaction context plugin and flip the test helper.
+
+### Drizzle migration journal vs. hand-edited migrations
+
+- **Status**: open
+- **Context**: Migrations `0003_virtual_bye_matches.sql` and `0004_drop_match_status.sql` used `IF EXISTS` / `DROP COLUMN IF EXISTS`. Drizzle Kit's journal metadata in `drizzle/meta/` did not capture the schema state after these idempotent statements, so subsequent `drizzle-kit generate` runs re-emit those changes alongside genuinely new diffs.
+- **Risk**: Future contributors running `db:generate` will see unrelated noise in generated migrations and may apply duplicate `ALTER TABLE` statements that fail on environments which already ran 0003/0004.
+- **Workaround**: After `db:generate`, hand-trim the emitted SQL to the genuinely new statements (as was done in `0005_add_club_join_requests.sql`).
+- **Future fix**: One-time re-introspection or a meta-only refresh so Drizzle's journal matches the live schema state. Alternatively, drop the idempotent guards in 0003/0004 once we're sure all environments have applied them.
+- **Trigger**: Next time the same drift symptom surfaces in a generated migration.
+
 ### API does not auto-reload on code changes
 
 - **Status**: open

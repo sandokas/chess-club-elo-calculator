@@ -1,4 +1,6 @@
-import type { Pool } from "pg";
+import type { Db } from "@chess-club/db";
+import { users, authIdentities, clubMemberships } from "@chess-club/db";
+import { eq, and, sql } from "drizzle-orm";
 import { OAuth2Client } from "google-auth-library";
 import { loadEnv } from "@chess-club/config";
 import { randomBytes } from "node:crypto";
@@ -83,36 +85,47 @@ export async function exchangeCodeForTokens(
 }
 
 /**
- * Find or create user from Google OAuth info
+ * Find or create user from Google OAuth info.
+ * User + auth-identity creation is wrapped in a transaction so we never leave
+ * an orphan user row if the identity insert fails.
  */
-export async function findOrCreateUser(pool: Pool, googleUser: GoogleUserInfo): Promise<{ userId: string; isNewUser: boolean }> {
-  // Check if auth identity exists
-  const identityResult = await pool.query(
-    `SELECT user_id FROM auth_identities WHERE provider = 'google' AND provider_subject = $1`,
-    [googleUser.sub]
-  );
+export async function findOrCreateUser(db: Db, googleUser: GoogleUserInfo): Promise<{ userId: string; isNewUser: boolean }> {
+  // Check if auth identity exists (provider+subject is unique)
+  const [existing] = await db
+    .select({ userId: authIdentities.userId })
+    .from(authIdentities)
+    .where(and(eq(authIdentities.provider, "google"), eq(authIdentities.providerSubject, googleUser.sub)))
+    .limit(1);
 
-  if (identityResult.rows.length > 0) {
-    return { userId: identityResult.rows[0].user_id, isNewUser: false };
+  if (existing) {
+    return { userId: existing.userId, isNewUser: false };
   }
 
-  // Create new user
-  const userResult = await pool.query(
-    `INSERT INTO users (email, name, email_verified) VALUES ($1, $2, $3) RETURNING id`,
-    [googleUser.email, googleUser.name, googleUser.email_verified]
-  );
+  const userId = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(users)
+      .values({
+        email: googleUser.email,
+        name: googleUser.name,
+        emailVerified: googleUser.email_verified
+      })
+      .returning({ id: users.id });
 
-  const userId = userResult.rows[0].id;
+    const newUserId = created!.id;
 
-  // Create auth identity
-  await pool.query(
-    `INSERT INTO auth_identities (user_id, provider, provider_subject, email) VALUES ($1, 'google', $2, $3)`,
-    [userId, googleUser.sub, googleUser.email]
-  );
+    await tx.insert(authIdentities).values({
+      userId: newUserId,
+      provider: "google",
+      providerSubject: googleUser.sub,
+      email: googleUser.email
+    });
 
-  // Check for bootstrap owner promotion
+    return newUserId;
+  });
+
+  // Bootstrap owner promotion (idempotent; runs outside the user-creation tx)
   if (env.BOOTSTRAP_OWNER_EMAIL && env.BOOTSTRAP_OWNER_EMAIL.toLowerCase() === googleUser.email.toLowerCase()) {
-    await promoteToOwnerOfAllClubs(userId, pool);
+    await promoteToOwnerOfAllClubs(userId, db);
   }
 
   return { userId, isNewUser: true };
@@ -121,21 +134,24 @@ export async function findOrCreateUser(pool: Pool, googleUser: GoogleUserInfo): 
 /**
  * Promote a user to owner of all existing clubs (bootstrap)
  */
-async function promoteToOwnerOfAllClubs(userId: string, pool: any): Promise<void> {
-  // Check if any owner exists for any club
-  const ownerCheckResult = await pool.query(
-    `SELECT COUNT(*) as count FROM club_memberships WHERE role = 'owner'`
-  );
+async function promoteToOwnerOfAllClubs(userId: string, db: Db): Promise<void> {
+  // Check if any owner exists for any club.
+  // NOTE: count(*) is bigint in pg → returned as a string by node-postgres,
+  // so we cast to int in SQL to get a real number back.
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(clubMemberships)
+    .where(eq(clubMemberships.role, "owner"));
 
-  const ownerCount = parseInt(ownerCheckResult.rows[0].count, 10);
+  const ownerCount = row?.count ?? 0;
 
   if (ownerCount === 0) {
-    // No owners exist, promote this user to owner of all clubs
-    await pool.query(
-      `INSERT INTO club_memberships (club_id, user_id, role)
-       SELECT id, $1, 'owner' FROM clubs
-       ON CONFLICT (club_id, user_id) DO UPDATE SET role = 'owner'`,
-      [userId]
+    // INSERT ... SELECT ... ON CONFLICT is awkward in the Drizzle builder.
+    // Use db.execute(sql`...`) with a parameterized placeholder for userId.
+    await db.execute(
+      sql`INSERT INTO club_memberships (club_id, user_id, role)
+         SELECT id, ${userId}, 'owner' FROM clubs
+         ON CONFLICT (club_id, user_id) DO UPDATE SET role = 'owner'`
     );
   }
 }

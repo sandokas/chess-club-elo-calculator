@@ -36,6 +36,13 @@
       "when": 1778603400000,
       "tag": "0004_drop_match_status",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779295024526,
+      "tag": "0005_add_club_join_requests",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,7 @@
 import { type FastifyInstance } from "fastify";
 import { loadEnv } from "@chess-club/config";
+import { clubMemberships, clubs } from "@chess-club/db";
+import { eq, sql } from "drizzle-orm";
 import { generatePKCE, getGoogleAuthUrl, exchangeCodeForTokens, findOrCreateUser } from "../lib/auth/oauth.js";
 import { createSession, loadSession, revokeSession, touchSession } from "../lib/auth/sessions.js";
 import { getCookieConfig } from "../lib/auth/cookies.js";
@@ -58,37 +60,38 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       const googleUser = await exchangeCodeForTokens(code, codeVerifier);
-      const pool = app.pg;
-      const { userId, isNewUser } = await findOrCreateUser(pool, googleUser);
+      const db = app.db;
+      const { userId, isNewUser } = await findOrCreateUser(db, googleUser);
 
-      // Bootstrap: promote user to owner of first club if BOOTSTRAP_OWNER_EMAIL matches
+      // Bootstrap: promote user to owner of first club if BOOTSTRAP_OWNER_EMAIL matches.
+      // NOTE: count(*) is bigint in pg and node-postgres returns it as a string,
+      // so we cast to int via ::int to get a real number for comparison.
       if (env.BOOTSTRAP_OWNER_EMAIL && googleUser.email === env.BOOTSTRAP_OWNER_EMAIL) {
-        // Check if user has any club memberships
-        const membershipResult = await pool.query(
-          `SELECT COUNT(*) as count FROM club_memberships WHERE user_id = $1`,
-          [userId]
-        );
+        const [membershipCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(clubMemberships)
+          .where(eq(clubMemberships.userId, userId));
 
-        if (parseInt(membershipResult.rows[0].count) === 0) {
-          // Get the first club
-          const clubResult = await pool.query(
-            `SELECT id FROM clubs ORDER BY created_at ASC LIMIT 1`
-          );
+        if ((membershipCount?.count ?? 0) === 0) {
+          const [firstClub] = await db
+            .select({ id: clubs.id })
+            .from(clubs)
+            .orderBy(clubs.createdAt)
+            .limit(1);
 
-          if (clubResult.rows.length > 0) {
-            const clubId = clubResult.rows[0].id;
-            // Promote to owner
-            await pool.query(
-              `INSERT INTO club_memberships (club_id, user_id, role) VALUES ($1, $2, 'owner')`,
-              [clubId, userId]
-            );
-            console.log(`Bootstrapped: Promoted ${googleUser.email} to owner of club ${clubId}`);
+          if (firstClub) {
+            await db.insert(clubMemberships).values({
+              clubId: firstClub.id,
+              userId,
+              role: "owner"
+            });
+            console.log(`Bootstrapped: Promoted ${googleUser.email} to owner of club ${firstClub.id}`);
           }
         }
       }
 
       // Create session
-      const { token, expiresAt } = await createSession(pool, userId);
+      const { token, expiresAt } = await createSession(db, userId);
 
       // Set session cookie
       reply.setCookie(getCookieConfig().name, token, getCookieConfig());
@@ -106,7 +109,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post("/auth/logout", async (request, reply) => {
     const token = request.cookies.sid;
     if (token) {
-      await revokeSession(app.pg, token);
+      await revokeSession(app.db, token);
     }
 
     reply.clearCookie(getCookieConfig().name);
@@ -123,7 +126,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const session = await loadSession(app.pg, token);
+    const session = await loadSession(app.db, token);
     if (!session) {
       reply.clearCookie(getCookieConfig().name);
       return reply.status(401).send({
@@ -133,7 +136,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Touch session to extend expiry
-    await touchSession(app.pg, session.sessionId);
+    await touchSession(app.db, session.sessionId);
 
     return reply.send({
       user: {

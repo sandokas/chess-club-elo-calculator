@@ -15,7 +15,7 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "node scripts/generate.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:test": "node scripts/migrate-test.mjs",
     "db:push": "drizzle-kit push",

@@ -66,4 +66,19 @@ Do not add the value anywhere else.
 
 ---
 
+## Testing
+
+**Tests are part of definition of done.** A feature is not "done" until tests prove it works. See **[TESTING.md](./TESTING.md)** for the full convention.
+
+Quick summary:
+
+- Real Postgres for every DB-touching test. No mocks of `pg`, `drizzle-orm`, or `@chess-club/db`.
+- TRUNCATE between tests (global `beforeEach` in `apps/api/test/setup.ts`).
+- Pure-logic tests (Elo, Swiss pairing, validators) live in `apps/api/test/lib/**` and have no DB.
+- The only allowed third-party SDK mock is `google-auth-library` (network boundary).
+- `expect(500) // Database error` as a substitute for real assertions is forbidden.
+- Schema changes require a generated migration (`pnpm --filter @chess-club/db db:generate`), never `db:push` in test environments.
+
+---
+
 If you're about to edit this file because the rule is inconvenient: don't. Refactor the duplication instead.

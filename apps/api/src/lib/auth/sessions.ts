@@ -1,6 +1,15 @@
 
-import type { Pool } from "pg";
-import { generateSessionToken, hashSessionToken, getCookieConfig } from "./cookies.js";
+import type { Db } from "@chess-club/db";
+import { users, sessions, clubMemberships, clubs } from "@chess-club/db";
+import { eq, and, gt } from "drizzle-orm";
+import { generateSessionToken, hashSessionToken } from "./cookies.js";
+
+/** Session lifetime: 30 days (sliding) */
+const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function newSessionExpiry(): Date {
+  return new Date(Date.now() + SESSION_DURATION_MS);
+}
 
 export type SessionUser = {
   id: string;
@@ -21,15 +30,16 @@ export type SessionData = SessionUser & {
 /**
  * Create a new session for a user
  */
-export async function createSession(pool: Pool, userId: string): Promise<{ token: string; expiresAt: Date }> {
+export async function createSession(db: Db, userId: string): Promise<{ token: string; expiresAt: Date }> {
   const token = generateSessionToken();
   const tokenHash = await hashSessionToken(token);
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+  const expiresAt = newSessionExpiry();
 
-  await pool.query(
-    `INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
-    [userId, tokenHash, expiresAt]
-  );
+  await db.insert(sessions).values({
+    userId,
+    tokenHash,
+    expiresAt
+  });
 
   return { token, expiresAt };
 }
@@ -37,38 +47,38 @@ export async function createSession(pool: Pool, userId: string): Promise<{ token
 /**
  * Load a session by token and return user data with memberships
  */
-export async function loadSession(pool: Pool, token: string): Promise<SessionData | null> {
+export async function loadSession(db: Db, token: string): Promise<SessionData | null> {
   const tokenHash = await hashSessionToken(token);
 
-  const sessionResult = await pool.query(
-    `SELECT s.id, s.user_id, s.expires_at, u.email, u.name
-     FROM sessions s
-     JOIN users u ON u.id = s.user_id
-     WHERE s.token_hash = $1 AND s.expires_at > NOW()`,
-    [tokenHash]
-  );
+  const [session] = await db
+    .select({
+      id: sessions.id,
+      userId: sessions.userId,
+      expiresAt: sessions.expiresAt,
+      email: users.email,
+      name: users.name
+    })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, new Date())))
+    .limit(1);
 
-  if (sessionResult.rows.length === 0) {
+  if (!session) {
     return null;
   }
 
-  const session = sessionResult.rows[0];
-  const userId = session.user_id;
+  const userId = session.userId;
 
-  // Load memberships
-  const membershipsResult = await pool.query(
-    `SELECT cm.club_id, cm.role, c.name as club_name
-     FROM club_memberships cm
-     JOIN clubs c ON c.id = cm.club_id
-     WHERE cm.user_id = $1`,
-    [userId]
-  );
-
-  const memberships = membershipsResult.rows.map((row: any) => ({
-    clubId: row.club_id,
-    clubName: row.club_name,
-    role: row.role
-  }));
+  // Load memberships (role type inferred from clubRoleEnum)
+  const memberships = await db
+    .select({
+      clubId: clubMemberships.clubId,
+      role: clubMemberships.role,
+      clubName: clubs.name
+    })
+    .from(clubMemberships)
+    .innerJoin(clubs, eq(clubs.id, clubMemberships.clubId))
+    .where(eq(clubMemberships.userId, userId));
 
   return {
     sessionId: session.id,
@@ -76,32 +86,28 @@ export async function loadSession(pool: Pool, token: string): Promise<SessionDat
     email: session.email,
     name: session.name,
     memberships,
-    expiresAt: session.expires_at
+    expiresAt: session.expiresAt
   };
 }
 
 /**
  * Revoke a session by token
  */
-export async function revokeSession(pool: Pool, token: string): Promise<void> {
+export async function revokeSession(db: Db, token: string): Promise<void> {
   const tokenHash = await hashSessionToken(token);
-  await pool.query(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]);
+  await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
 }
 
 /**
  * Revoke all sessions for a user
  */
-export async function revokeAllUserSessions(pool: Pool, userId: string): Promise<void> {
-  await pool.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+export async function revokeAllUserSessions(db: Db, userId: string): Promise<void> {
+  await db.delete(sessions).where(eq(sessions.userId, userId));
 }
 
 /**
  * Touch a session to extend its expiry (sliding session)
  */
-export async function touchSession(pool: Pool, sessionId: string): Promise<void> {
-  const newExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-  await pool.query(
-    `UPDATE sessions SET expires_at = $1 WHERE id = $2`,
-    [newExpiresAt, sessionId]
-  );
+export async function touchSession(db: Db, sessionId: string): Promise<void> {
+  await db.update(sessions).set({ expiresAt: newSessionExpiry() }).where(eq(sessions.id, sessionId));
 }

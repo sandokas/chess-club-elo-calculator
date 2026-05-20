@@ -1,5 +1,7 @@
 
-import type { Pool } from "pg";
+import type { Db } from "@chess-club/db";
+import { clubMemberships, tournaments, players } from "@chess-club/db";
+import { eq, and } from "drizzle-orm";
 import type { SessionData } from "./sessions.js";
 import type { FastifyRequest, FastifyReply } from "fastify";
 
@@ -17,8 +19,8 @@ export async function attachUser(request: FastifyRequest, reply: FastifyReply) {
     return;
   }
 
-  const pool = request.server.pg;
-  const session = await loadSession(pool, token);
+  const db = request.server.db;
+  const session = await loadSession(db, token);
   if (!session) {
     request.user = null;
     return;
@@ -28,9 +30,15 @@ export async function attachUser(request: FastifyRequest, reply: FastifyReply) {
 }
 
 /**
- * Require authentication - returns 401 if not authenticated
+ * Require authentication - returns 401 if not authenticated.
+ *
+ * NOTE: this MUST be async. Fastify v5 inspects the function arity to decide
+ * whether to await it; an arity-2 non-async preHandler that returns `undefined`
+ * (i.e. when the user IS authenticated) causes Fastify to hang waiting for a
+ * promise that never resolves. Returning a sent reply (the 401 path) works
+ * either way, but the pass-through case requires async.
  */
-export function requireAuth(request: FastifyRequest, reply: FastifyReply) {
+export async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
   if (!request.user) {
     return reply.status(401).send({
       error: "Unauthorized",
@@ -81,49 +89,40 @@ export async function requireClubRole(
 /**
  * Get membership for a specific club
  */
-export async function getMembership(pool: Pool, userId: string, clubId: string): Promise<ClubRole | null> {
-  const result = await pool.query(
-    `SELECT role FROM club_memberships WHERE user_id = $1 AND club_id = $2`,
-    [userId, clubId]
-  );
+export async function getMembership(db: Db, userId: string, clubId: string): Promise<ClubRole | null> {
+  const [row] = await db
+    .select({ role: clubMemberships.role })
+    .from(clubMemberships)
+    .where(and(eq(clubMemberships.userId, userId), eq(clubMemberships.clubId, clubId)))
+    .limit(1);
 
-  if (result.rows.length === 0) {
-    return null;
-  }
-
-  return result.rows[0].role as ClubRole;
+  return row?.role ?? null;
 }
 
 /**
  * Resolve club ID from tournament ID
  */
-export async function resolveClubIdFromTournament(pool: Pool, tournamentId: string): Promise<string | null> {
-  const result = await pool.query(
-    `SELECT club_id FROM tournaments WHERE id = $1`,
-    [tournamentId]
-  );
+export async function resolveClubIdFromTournament(db: Db, tournamentId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ clubId: tournaments.clubId })
+    .from(tournaments)
+    .where(eq(tournaments.id, tournamentId))
+    .limit(1);
 
-  if (result.rows.length === 0) {
-    return null;
-  }
-
-  return result.rows[0].club_id;
+  return row?.clubId ?? null;
 }
 
 /**
  * Resolve club ID from player ID
  */
-export async function resolveClubIdFromPlayer(pool: Pool, playerId: string): Promise<string | null> {
-  const result = await pool.query(
-    `SELECT club_id FROM players WHERE id = $1`,
-    [playerId]
-  );
+export async function resolveClubIdFromPlayer(db: Db, playerId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ clubId: players.clubId })
+    .from(players)
+    .where(eq(players.id, playerId))
+    .limit(1);
 
-  if (result.rows.length === 0) {
-    return null;
-  }
-
-  return result.rows[0].club_id;
+  return row?.clubId ?? null;
 }
 
 /**
@@ -141,9 +140,9 @@ export async function requireTournamentClubRole(
     });
   }
 
-  const pool = request.server.pg;
+  const db = request.server.db;
   const tournamentId = request.params.id as string;
-  const clubId = await resolveClubIdFromTournament(pool, tournamentId);
+  const clubId = await resolveClubIdFromTournament(db, tournamentId);
 
   if (!clubId) {
     return reply.status(404).send({
@@ -183,9 +182,9 @@ export async function requirePlayerClubRole(
     });
   }
 
-  const pool = request.server.pg;
+  const db = request.server.db;
   const playerId = request.params.id as string;
-  const clubId = await resolveClubIdFromPlayer(pool, playerId);
+  const clubId = await resolveClubIdFromPlayer(db, playerId);
 
   if (!clubId) {
     return reply.status(404).send({
