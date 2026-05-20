@@ -1,6 +1,6 @@
 import type { Player, PlayersListData, PlayerDetail } from "./types.js";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const apiBaseUrl = "/api";
 
 async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, { signal });

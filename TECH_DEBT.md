@@ -45,6 +45,14 @@ Add new items under `Open Items` when work is deliberately postponed. Each item 
 - **Future fix**: Keep Node services running as the built-in `node` user and keep package-manager cache/store paths under `/home/node`. Consider moving Vite cache/temp output outside bind-mounted `node_modules` if this remains noisy.
 - **Trigger**: If root-owned or container-owned generated files reappear, or if local/host builds continue to conflict with container-generated caches.
 
+### API does not auto-reload on code changes
+
+- **Status**: open
+- **Context**: The API container runs `tsx src/server.ts` directly instead of `tsx watch` because file-change events from Windows host bind mounts are unreliable and caused the API process to SIGTERM-restart in a loop every ~70s, breaking in-flight requests.
+- **Risk**: Backend developers must manually `docker compose restart api` after each API code change. Slows iteration.
+- **Future fix**: Investigate one of: (a) `tsx watch --poll` with a tuned polling interval, (b) `nodemon` with `--legacy-watch`, (c) named-volume-based source sync instead of bind mount, or (d) running the API directly on the host outside Docker in dev.
+- **Trigger**: When backend iteration speed becomes a bottleneck, or when contributors on non-Windows hosts want HMR.
+
 ## Resolved Items
 
 ### Python CLI and documentation cleanup

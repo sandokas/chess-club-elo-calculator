@@ -29,7 +29,7 @@ export function RecomputeRatingsDialog({ clubId, open, onOpenChange, onRecompute
     setResult(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/clubs/${clubId}/ratings/recompute`, {
+      const response = await fetch(`/api/clubs/${clubId}/ratings/recompute`, {
         method: "POST",
       });
 

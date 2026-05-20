@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:18-alpine
     environment:
-      POSTGRES_DB: chess_club
-      POSTGRES_USER: chess_club
-      POSTGRES_PASSWORD: chess_club
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/18/docker
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chess_club -d chess_club"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 1s
       timeout: 3s
       retries: 30
@@ -23,13 +23,19 @@ services:
       dockerfile: Dockerfile
     user: "node"
     working_dir: /workspace
-    command: sh -c "pnpm --filter @chess-club/db db:migrate && pnpm --filter @chess-club/api dev"
+    command: sh -c "pnpm --filter @chess-club/db db:migrate && pnpm --filter @chess-club/api exec tsx src/server.ts"
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgres://chess_club:chess_club@postgres:5432/chess_club
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
       API_HOST: 0.0.0.0
       API_PORT: 4000
-      CI: "true"
+      SESSION_COOKIE_SECRET: ${SESSION_COOKIE_SECRET:?set SESSION_COOKIE_SECRET in .env}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:?set GOOGLE_OAUTH_CLIENT_ID in .env}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:?set GOOGLE_OAUTH_CLIENT_SECRET in .env}
+      OAUTH_REDIRECT_URL: ${OAUTH_REDIRECT_URL:?set OAUTH_REDIRECT_URL in .env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:5173}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:-}
+      WEB_BASE_URL: ${WEB_BASE_URL:?set WEB_BASE_URL in .env}
     ports:
       - "4000:4000"
     volumes:
@@ -46,8 +52,7 @@ services:
     working_dir: /workspace
     command: sh -c "pnpm --filter @chess-club/web dev --host 0.0.0.0"
     environment:
-      VITE_API_BASE_URL: http://localhost:4000
-      CI: "true"
+      VITE_API_TARGET: http://api:4000
     ports:
       - "5173:5173"
     volumes:

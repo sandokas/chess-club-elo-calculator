@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Routes, Route, Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Header } from "./components/layout/header.js";
 import { SkipLink } from "./components/ui/skip-link.js";
+import { RequireAuth } from "./components/auth/require-auth.js";
+import { UserHeader } from "./components/auth/user-header.js";
 import { StatusCard } from "./components/shared/status-card.js";
 import { StatCard } from "./components/shared/stat-card.js";
 import { BackButton } from "./components/shared/back-button.js";
@@ -99,31 +101,45 @@ type AdminData = {
   leaderboard: LeaderboardEntry[];
 };
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const apiBaseUrl = "/api";
 
 export function App() {
   return (
     <div className="min-h-screen bg-background">
       <SkipLink />
       <Header />
+      <UserHeader />
       <main id="main-content" className="container mx-auto p-4 sm:p-6" tabIndex={-1}>
-        <Routes>
-          <Route path="/" element={<AdminOverviewPage />} />
-          <Route path="/players" element={<PlayersListPage />} />
-          <Route path="/tournaments" element={<TournamentsListPage />} />
-          <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
-          <Route path="/players/:id" element={<PlayerDetailPage />} />
-        </Routes>
+        <RequireAuth>
+          <Routes>
+            <Route path="/" element={<AdminOverviewPage />} />
+            <Route path="/players" element={<PlayersListPage />} />
+            <Route path="/tournaments" element={<TournamentsListPage />} />
+            <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
+            <Route path="/players/:id" element={<PlayerDetailPage />} />
+          </Routes>
+          <GlobalCreateClubDialog />
+        </RequireAuth>
       </main>
       <Toaster />
     </div>
   );
 }
 
+function GlobalCreateClubDialog() {
+  const { createClubDialogOpen, setCreateClubDialogOpen } = useClub();
+  return (
+    <CreateClubDialog
+      open={createClubDialogOpen}
+      onOpenChange={setCreateClubDialogOpen}
+    />
+  );
+}
+
 function AdminOverviewPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [activeOnly, setActiveOnly] = useState(true);
-  const { club, isLoading: clubLoading, error: clubError } = useClub();
+  const { club, clubs, isLoading: clubLoading, error: clubError, setCreateClubDialogOpen } = useClub();
 
   useEffect(() => {
     if (clubLoading || !club) return;
@@ -150,6 +166,22 @@ function AdminOverviewPage() {
 
     return () => controller.abort();
   }, [activeOnly, club, clubLoading, clubError]);
+
+  // No clubs at all: prompt the user to create one
+  if (!clubLoading && clubs.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
+        <h2 className="text-2xl font-semibold">Welcome to Chess Club Manager</h2>
+        <p className="text-muted-foreground max-w-md">
+          You don't belong to any club yet. Create your first club to get started.
+        </p>
+        <Button onClick={() => setCreateClubDialogOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Create your first club
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -475,7 +507,6 @@ async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
 function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminData; activeOnly: boolean; onActiveOnlyChange: (value: boolean) => void }) {
   const topPlayers = data.leaderboard.slice(0, 10);
   const recentTournaments = data.tournaments.slice(0, 6);
-  const { createClubDialogOpen, setCreateClubDialogOpen } = useClub();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editClubDialogOpen, setEditClubDialogOpen] = useState(false);
   const [recomputeRatingsDialogOpen, setRecomputeRatingsDialogOpen] = useState(false);
@@ -638,10 +669,6 @@ function AdminOverview({ data, activeOnly, onActiveOnlyChange }: { data: AdminDa
         onRecomputed={() => {
           // Data will be refreshed when user closes dialog
         }}
-      />
-      <CreateClubDialog
-        open={createClubDialogOpen}
-        onOpenChange={setCreateClubDialogOpen}
       />
     </section>
   );

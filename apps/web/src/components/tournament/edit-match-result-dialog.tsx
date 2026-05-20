@@ -12,7 +12,7 @@ import {
 } from "../ui/dialog";
 import { useToast } from "../../hooks/use-toast";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const apiBaseUrl = "/api";
 
 interface Match {
   id: string;

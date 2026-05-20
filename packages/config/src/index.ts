@@ -3,11 +3,37 @@ import { resolve } from "node:path";
 import { z } from "zod";
 
 const envSchema = z.object({
+  // Environment
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  DATABASE_URL: z.string().url().default("postgres://chess_club:chess_club@localhost:5432/chess_club"),
-  API_HOST: z.string().default("0.0.0.0"),
-  API_PORT: z.coerce.number().int().positive().default(4000),
-  VITE_API_BASE_URL: z.string().url().default("http://localhost:4000")
+
+  // Database
+  DATABASE_URL: z.string().url(),
+  
+  // Auth
+  SESSION_COOKIE_SECRET: z.string().min(32),
+  GOOGLE_OAUTH_CLIENT_ID: z.string(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string(),
+  OAUTH_REDIRECT_URL: z.string().url(),
+  
+  // Feature flags
+  REQUIRE_AUTH: z.string().transform((val) => val === "true").default("false"),
+  
+  // CORS
+  ALLOWED_ORIGINS: z.string().default("http://localhost:5173"),
+  
+  // URLs
+  WEB_BASE_URL: z.string().url().default("http://localhost:5173"),
+  
+  // Bootstrap
+  BOOTSTRAP_OWNER_EMAIL: z.string().optional().transform((val) => {
+    if (!val || val.trim() === "") return undefined;
+    const emailSchema = z.string().email();
+    return emailSchema.parse(val);
+  }),
+
+  // API
+  API_HOST: z.string(),
+  API_PORT: z.string().transform((val) => parseInt(val, 10))
 });
 
 const importEnvSchema = z.object({
@@ -28,6 +54,9 @@ export type AppEnv = z.infer<typeof envSchema>;
 export type ImportEnv = z.infer<typeof importEnvSchema>;
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
+  // SECRETS MANAGER HOOK: To integrate a secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager),
+  // fetch secrets here before calling envSchema.parse(). This is the single seam for secrets injection.
+  // Current implementation reads from process.env directly.
   return envSchema.parse(source);
 }
 

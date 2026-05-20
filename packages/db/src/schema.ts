@@ -19,6 +19,7 @@ import { sql } from "drizzle-orm";
 export const authProviderEnum = pgEnum("auth_provider", ["password", "google"]);
 export const clubRoleEnum = pgEnum("club_role", ["owner", "admin", "organizer", "member"]);
 export const inviteStatusEnum = pgEnum("invite_status", ["pending", "accepted", "expired", "revoked"]);
+export const joinRequestStatusEnum = pgEnum("join_request_status", ["pending", "accepted", "rejected"]);
 export const tournamentFormatEnum = pgEnum("tournament_format", ["manual", "swiss"]);
 export const pairingMethodEnum = pgEnum("pairing_method", ["seeded_by_rating", "random"]);
 export const tournamentStatusEnum = pgEnum("tournament_status", ["draft", "active", "completed"]);
@@ -132,6 +133,29 @@ export const clubInvites = pgTable(
   (table) => ({
     tokenHashUnique: uniqueIndex("club_invites_token_hash_unique").on(table.tokenHash),
     clubEmailIdx: index("club_invites_club_email_idx").on(table.clubId, table.email)
+  })
+);
+
+export const clubJoinRequests = pgTable(
+  "club_join_requests",
+  {
+    id: uuid("id").default(sql`uuidv7()`).primaryKey(),
+    clubId: uuid("club_id")
+      .notNull()
+      .references(() => clubs.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    message: text("message"),
+    status: joinRequestStatusEnum("status").notNull().default("pending"),
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    clubUserPendingUnique: uniqueIndex("club_join_requests_club_user_pending_unique").on(table.clubId, table.userId).where(sql`status = 'pending'`),
+    clubIdx: index("club_join_requests_club_id_idx").on(table.clubId),
+    userIdx: index("club_join_requests_user_id_idx").on(table.userId)
   })
 );
 
@@ -300,6 +324,7 @@ export const schema = {
   clubs,
   clubMemberships,
   clubInvites,
+  clubJoinRequests,
   players,
   playerRatings,
   tournaments,

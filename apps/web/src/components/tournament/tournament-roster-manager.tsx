@@ -14,7 +14,7 @@ import { Badge } from "../ui/badge";
 import type { Tournament } from "../../lib/types.js";
 import { cn } from "../../lib/utils.js";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const apiBaseUrl = "/api";
 
 type TournamentPlayer = {
   playerId: string;

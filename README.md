@@ -14,20 +14,16 @@ A web application for chess club management with player ratings (Elo and Glicko-
 
 ### Prerequisites
 
-- Node.js 25+
-- pnpm
 - Docker and Docker Compose
-
-### Installation
-
-```bash
-# Install dependencies
-pnpm install
-```
+- A Google Cloud OAuth 2.0 Client ID (for authentication) — see [Auth setup](#auth-setup) below
 
 ### Running the Application
 
 ```bash
+# Copy the example env file and fill in real values
+cp .env.example .env
+# Edit .env: set SESSION_COOKIE_SECRET, Google OAuth credentials, etc.
+
 # Start all services (PostgreSQL, API, Web)
 docker compose up -d
 
@@ -39,8 +35,20 @@ docker compose down
 ```
 
 The application will be available at:
-- **API**: http://localhost:4000
-- **Web**: http://localhost:5173
+- **Web UI**: http://localhost:5173
+- **API** (also reachable via Vite proxy at `http://localhost:5173/api/*`): http://localhost:4000
+
+### Auth setup
+
+1. Create an OAuth 2.0 Client ID in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → "Web application"
+2. Add `http://localhost:5173/api/auth/google/callback` as an **Authorized redirect URI**
+3. Set `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, and `OAUTH_REDIRECT_URL=http://localhost:5173/api/auth/google/callback` in `.env`
+4. (Optional) Set `BOOTSTRAP_OWNER_EMAIL` to your Google account email — the first user with this email to log in is auto-promoted to owner of all existing clubs
+
+### Development notes
+
+- The web app proxies `/api/*` to the API container (see `apps/web/vite.config.ts`), so frontend and backend share the same origin in dev. This avoids CORS/cookie issues.
+- Code changes to the web app hot-reload via Vite. **API changes currently require `docker compose restart api`** (no file watcher — see `TECH_DEBT.md`).
 
 ## Project Structure
 

@@ -36,7 +36,7 @@ export function CreateClubDialog({ open, onOpenChange }: CreateClubDialogProps) 
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/clubs`, {
+      const response = await fetch(`/api/clubs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

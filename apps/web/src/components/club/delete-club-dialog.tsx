@@ -40,7 +40,7 @@ export function DeleteClubDialog({ clubId, clubName, open, onOpenChange, onDelet
     setIsDeleting(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/clubs/${clubId}`, {
+      const response = await fetch(`/api/clubs/${clubId}`, {
         method: "DELETE",
       });
 

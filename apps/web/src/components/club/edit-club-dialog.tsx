@@ -42,7 +42,7 @@ export function EditClubDialog({ clubId, open, onOpenChange, currentClub, onUpda
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/clubs/${clubId}`, {
+      const response = await fetch(`/api/clubs/${clubId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

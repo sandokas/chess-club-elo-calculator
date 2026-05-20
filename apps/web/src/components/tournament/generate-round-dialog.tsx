@@ -14,7 +14,7 @@ import { useToast } from "../../hooks/use-toast";
 import type { Tournament } from "../../lib/types.js";
 import { getCurrentDateTime } from "../../lib/date-utils.js";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const apiBaseUrl = "/api";
 
 interface GenerateRoundDialogProps {
   tournament: Partial<Tournament>;
