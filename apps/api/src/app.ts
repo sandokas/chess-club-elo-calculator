@@ -1518,29 +1518,48 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
 
           const whiteInput: RatingProfile = {
             elo: whiteRating.elo,
-            glickoRating: whiteRating.glickoRating,
-            glickoRd: whiteRating.glickoRd,
-            glickoVol: whiteRating.glickoVol,
-            gamesPlayed: whiteRating.gamesPlayed
+            glicko: {
+              rating: whiteRating.glickoRating,
+              rd: whiteRating.glickoRd,
+              vol: whiteRating.glickoVol,
+              lastGameDate: null
+            },
+            gamesPlayed: whiteRating.gamesPlayed,
+            lastGameDate: null
           };
 
           const blackInput: RatingProfile = {
             elo: blackRating.elo,
-            glickoRating: blackRating.glickoRating,
-            glickoRd: blackRating.glickoRd,
-            glickoVol: blackRating.glickoVol,
-            gamesPlayed: blackRating.gamesPlayed
+            glicko: {
+              rating: blackRating.glickoRating,
+              rd: blackRating.glickoRd,
+              vol: blackRating.glickoVol,
+              lastGameDate: null
+            },
+            gamesPlayed: blackRating.gamesPlayed,
+            lastGameDate: null
           };
 
-          const { white: whiteNew, black: blackNew } = applyRatedMatch(whiteInput, blackInput, result);
+          const { white: whiteNew, black: blackNew } = applyRatedMatch(
+            whiteInput,
+            blackInput,
+            result,
+            new Date(match.playedOn)
+          );
+
+          if (!blackNew) {
+            // Defensive: applyRatedMatch only returns null black for byes,
+            // which are excluded here because match.blackPlayerId is set.
+            throw new Error("Unexpected null black rating from applyRatedMatch");
+          }
 
           // Update white player rating
           await app.db.update(playerRatings)
             .set({
               elo: whiteNew.elo,
-              glickoRating: whiteNew.glickoRating,
-              glickoRd: whiteNew.glickoRd,
-              glickoVol: whiteNew.glickoVol,
+              glickoRating: whiteNew.glicko.rating,
+              glickoRd: whiteNew.glicko.rd,
+              glickoVol: whiteNew.glicko.vol,
               gamesPlayed: sql`${playerRatings.gamesPlayed} + 1`,
               lastGameDate: match.playedOn
             })
@@ -1550,9 +1569,9 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
           await app.db.update(playerRatings)
             .set({
               elo: blackNew.elo,
-              glickoRating: blackNew.glickoRating,
-              glickoRd: blackNew.glickoRd,
-              glickoVol: blackNew.glickoVol,
+              glickoRating: blackNew.glicko.rating,
+              glickoRd: blackNew.glicko.rd,
+              glickoVol: blackNew.glicko.vol,
               gamesPlayed: sql`${playerRatings.gamesPlayed} + 1`,
               lastGameDate: match.playedOn
             })
