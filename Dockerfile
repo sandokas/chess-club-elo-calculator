@@ -1,7 +1,32 @@
 FROM node:25-alpine
 
-# Build tools for any native node modules.
-RUN apk add --no-cache make g++ libc6-compat
+# Host UID/GID for the in-container `node` user. Defaults to 1000, which is:
+#  - the UID/GID of the stock `node` user in node:*-alpine images,
+#  - the default first-user UID on most Linux desktops,
+#  - irrelevant on Windows/macOS Docker Desktop (the VM abstracts ownership).
+# Linux hosts with a different UID/GID override at build time:
+#   UID=$(id -u) GID=$(id -g) docker compose build
+ARG UID=1000
+ARG GID=1000
+
+# `libc6-compat` provides glibc symbols on musl-based Alpine. Required by the
+# older esbuild prebuilt binaries (<=0.19) that some transitive deps still pull
+# in; newer prebuilts (rollup, tailwindcss oxide, lightningcss, esbuild >=0.20)
+# ship native musl variants and don't depend on it.
+#
+# Native compile tools (make, g++) intentionally NOT installed: we have no
+# packages that build at install time (project moved off better-sqlite3 to
+# pg, which is pure JS). Saves ~150 MB in the image.
+#
+# We also re-create the `node` user with the requested UID/GID when it differs
+# from the stock 1000:1000 so the container's writes to bind-mounted files land
+# with the host user's perms.
+RUN apk add --no-cache libc6-compat \
+ && if [ "$UID" != "1000" ] || [ "$GID" != "1000" ]; then \
+      deluser node \
+      && addgroup -g "$GID" node \
+      && adduser -u "$UID" -G node -s /bin/sh -D node; \
+    fi
 
 # pnpm globally.
 RUN npm install -g pnpm@11.0.8

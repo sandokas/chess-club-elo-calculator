@@ -7,7 +7,7 @@ import { registerPlayerRoutes } from "./routes/players.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerInviteRoutes } from "./routes/invites.js";
 import { asHttpError, createErrorResponse } from "./lib/errors.js";
-import { parseStringFilter, escapeLikePattern } from "./lib/validators.js";
+import { parseStringFilter, escapeLikePattern, validateTotalRounds } from "./lib/validators.js";
 import { generateSwissPairings } from "./lib/swiss-pairing.js";
 import { recomputeRatings, applyRatedMatch, type MatchInput, type RatingProfile } from "./lib/ratings/ratings.js";
 import { attachUser, requireAuth, requireClubRole, requireTournamentClubRole, requirePlayerClubRole, resolveClubIdFromTournament } from "./lib/auth/rbac.js";
@@ -456,10 +456,11 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         });
       }
 
-    if (totalRounds !== undefined && (totalRounds < 1 || totalRounds > 50)) {
+    const totalRoundsError = validateTotalRounds(totalRounds);
+    if (totalRoundsError) {
         return reply.status(400).send({
           error: "ValidationError",
-          message: "totalRounds must be between 1 and 50"
+          message: totalRoundsError
         });
       }
 
@@ -671,7 +672,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     
   });
 
-  app.put<{ Params: TournamentParams; Body: { name?: string; startsOn?: string; status?: string; totalRounds?: number; pairingMethod?: string } }>("/tournaments/:id", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
+  app.put<{ Params: TournamentParams; Body: { name?: string; startsOn?: string; status?: string; totalRounds?: number | null; pairingMethod?: string } }>("/tournaments/:id", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireTournamentClubRole(request, reply, ["owner", "admin", "organizer"])] }, async (request, reply) => {
     const { name, startsOn, status, totalRounds, pairingMethod } = request.body;
 
     const validStatuses = ["draft", "active", "completed"];
@@ -704,10 +705,11 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         });
       }
 
-    if (totalRounds !== undefined && (totalRounds < 1 || totalRounds > 50)) {
+    const totalRoundsError = validateTotalRounds(totalRounds);
+    if (totalRoundsError) {
         return reply.status(400).send({
           error: "ValidationError",
-          message: "totalRounds must be between 1 and 50"
+          message: totalRoundsError
         });
       }
 

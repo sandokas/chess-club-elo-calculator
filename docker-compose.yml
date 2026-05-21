@@ -21,9 +21,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # See Dockerfile: defaults to 1000:1000 (works for Windows/macOS and
+        # Linux with default first-user UID). Override on Linux hosts whose
+        # user is not 1000:1000 by running:
+        #   UID=$(id -u) GID=$(id -g) docker compose build
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
     user: "node"
     working_dir: /workspace
-    command: sh -c "pnpm --filter @chess-club/db db:migrate && pnpm --filter @chess-club/api exec tsx src/server.ts"
+    # Self-healing startup: `pnpm install --prefer-offline` is a no-op (~1s) when
+    # the anonymous volume is consistent, and transparently re-syncs missing or
+    # drifted deps after a `docker compose restart`. Without it, a damaged
+    # anonymous volume (e.g. partial install from a previous run) leaves the
+    # container permanently broken until volumes are nuked.
+    command: sh -c "pnpm install --prefer-offline && pnpm --filter @chess-club/db db:migrate && pnpm --filter @chess-club/api exec tsx src/server.ts"
     environment:
       # Quiets pnpm's interactive purge prompt; pnpm treats CI=true as
       # "non-interactive, never auto-purge".
@@ -58,13 +70,22 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # See api service above.
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
     user: "node"
     working_dir: /workspace
-    command: sh -c "pnpm --filter @chess-club/web dev --host 0.0.0.0"
+    # See api service comment about self-healing startup.
+    command: sh -c "pnpm install --prefer-offline && pnpm --filter @chess-club/web dev --host 0.0.0.0"
     environment:
       CI: "true"
       npm_config_verify_deps_before_run: "false"
       VITE_API_TARGET: http://api:4000
+      # Polling FS watcher. Required on Windows/macOS Docker Desktop bind mounts.
+      # Linux hosts can override to "false" in their shell or a compose override
+      # file (`CHOKIDAR_USEPOLLING=false docker compose up -d`) to save CPU.
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
     ports:
       - "5173:5173"
     volumes:

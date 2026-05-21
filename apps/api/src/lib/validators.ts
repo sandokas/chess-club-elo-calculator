@@ -93,3 +93,28 @@ export function validateTournamentStatus(status: string | undefined): string | u
   if (!status) return undefined;
   return validStatuses.includes(status) ? status : undefined;
 }
+
+/** Allowed range for tournament totalRounds. Single source of truth — do not duplicate. */
+export const TOTAL_ROUNDS_MIN = 1;
+export const TOTAL_ROUNDS_MAX = 50;
+
+/**
+ * Validates the totalRounds field for tournament create/update.
+ *
+ * Semantics:
+ * - `undefined`  → caller did not supply the field (no-op).
+ * - `null`       → caller explicitly clears the field (valid, lets Swiss auto-suggest rounds).
+ * - number       → must be within [TOTAL_ROUNDS_MIN, TOTAL_ROUNDS_MAX].
+ *
+ * Returns a human-readable error message when invalid, otherwise null.
+ */
+export function validateTotalRounds(value: number | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return `totalRounds must be between ${TOTAL_ROUNDS_MIN} and ${TOTAL_ROUNDS_MAX}`;
+  }
+  if (value < TOTAL_ROUNDS_MIN || value > TOTAL_ROUNDS_MAX) {
+    return `totalRounds must be between ${TOTAL_ROUNDS_MIN} and ${TOTAL_ROUNDS_MAX}`;
+  }
+  return null;
+}

@@ -24,7 +24,7 @@ type Tournament = {
   startsOn: string | null;
   status: string;
   pairingMethod?: string;
-  totalRounds?: number;
+  totalRounds?: number | null;
 };
 
 interface EditTournamentDialogProps {
@@ -155,8 +155,8 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
               type="number"
               min="1"
               max="50"
-              {...form.register("totalRounds", { 
-                valueAsNumber: true 
+              {...form.register("totalRounds", {
+                setValueAs: (v) => v === "" || v === null ? null : Number(v)
               })}
               disabled={isSubmitting}
             />
