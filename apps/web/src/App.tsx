@@ -18,7 +18,6 @@ import { useToast } from "./hooks/use-toast";
 import { EditTournamentDialog } from "./components/tournament/edit-tournament-dialog.js";
 import { CreateTournamentDialog } from "./components/tournament/create-tournament-dialog.js";
 import { TournamentRosterManager } from "./components/tournament/tournament-roster-manager.js";
-import { useClubPlayers, useClubTournaments, useClubTournamentsCount, useClubLeaderboard } from "./lib/hooks/use-clubs.js";
 import { GenerateRoundDialog } from "./components/tournament/generate-round-dialog.js";
 import { EditRoundStartDialog } from "./components/tournament/edit-round-start-dialog.js";
 import { EditPlayerDialog } from "./components/player/edit-player-dialog.js";
@@ -58,5 +57,3 @@ export function App() {
     </div>
   );
 }
-
-

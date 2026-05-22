@@ -12,6 +12,15 @@ export const createTournamentSchema = z.object({
   pairingMethod: z.enum(validPairingMethods).optional()
 });
 
+export const listTournamentsQuerySchema = z.object({
+  page: z.string().optional(),
+  limit: z.string().optional(),
+  sortBy: z.string().optional(),
+  sortOrder: z.string().optional(),
+  name: z.string().optional(),
+  status: z.string().optional()
+});
+
 export const updateTournamentSchema = z.object({
   name: z.string().min(1, "name cannot be empty").max(255).optional(),
   startsOn: z.string().optional(),
@@ -23,4 +32,5 @@ export const updateTournamentSchema = z.object({
 });
 
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>;
+export type ListTournamentsQuery = z.infer<typeof listTournamentsQuerySchema>;
 export type UpdateTournamentInput = z.infer<typeof updateTournamentSchema>;

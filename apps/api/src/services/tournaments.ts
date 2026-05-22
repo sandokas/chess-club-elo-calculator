@@ -31,8 +31,8 @@ export async function listTournaments(
     format: tournaments.format,
     status: tournaments.status,
     legacyId: tournaments.legacyId,
-    playerCount: sql<number>`COUNT(DISTINCT ${tournamentPlayers.playerId})`,
-    matchCount: sql<number>`COUNT(DISTINCT ${matches.id})`
+    playerCount: sql<number>`COUNT(DISTINCT ${tournamentPlayers.playerId})`.mapWith(Number),
+    matchCount: sql<number>`COUNT(DISTINCT ${matches.id})`.mapWith(Number)
   }).from(tournaments)
     .leftJoin(tournamentPlayers, eq(tournamentPlayers.tournamentId, tournaments.id))
     .leftJoin(matches, eq(matches.tournamentId, tournaments.id))

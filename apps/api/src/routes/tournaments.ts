@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { eq, and, sql, asc, desc, isNull, count } from "drizzle-orm";
 import { tournaments, tournamentPlayers, matches } from "@chess-club/db";
-import { createTournamentSchema, updateTournamentSchema } from "../lib/schemas/tournament.js";
+import { createTournamentSchema, listTournamentsQuerySchema, updateTournamentSchema, type ListTournamentsQuery } from "../lib/schemas/tournament.js";
 import { parseBody, parseQuery } from "../lib/validate.js";
-import { parseStringFilter, escapeLikePattern, validateTotalRounds } from "../lib/validators.js";
+import { parsePaginationParams, parseSortParams, parseStringFilter, escapeLikePattern, validateTournamentStatus } from "../lib/validators.js";
 import { createNotFoundError, createValidationError } from "../lib/errors.js";
 import { listTournaments, getTournamentById, getTournamentStandings } from "../services/tournaments.js";
 import { requireAuth, requireClubRole, requireTournamentClubRole, type ClubRole } from "../lib/auth/rbac.js";
@@ -24,15 +24,15 @@ export async function registerTournamentRoutes(app: FastifyInstance) {
   const conditionalRequireTournamentClubRole = (roles: ClubRole[]) => REQUIRE_AUTH ? ((request: any, reply: any) => requireTournamentClubRole(request, reply, roles)) : async () => {};
 
   // List tournaments for a club
-  app.get<{ Params: ClubParams; Querystring: { page?: string; limit?: string; sortBy?: string; sortOrder?: string; name?: string; status?: string } }>("/clubs/:clubId/tournaments", { preHandler: [conditionalRequireAuth, conditionalRequireClubRole(["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
+  app.get<{ Params: ClubParams; Querystring: ListTournamentsQuery }>("/clubs/:clubId/tournaments", { preHandler: [conditionalRequireAuth, conditionalRequireClubRole(["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
     const { clubId } = request.params;
-    const query = parseQuery(createTournamentSchema, request.query);
-    
-    const page = Math.max(1, parseInt(query.page || '1', 10));
-    const limit = [10, 20, 50].includes(parseInt(query.limit || '20', 10)) ? parseInt(query.limit || '20', 10) : 20;
+    const query = parseQuery(listTournamentsQuerySchema, request.query);
+    const { page, limit } = parsePaginationParams(query);
     const allowedSortColumns = ['name', 'startsOn', 'status', 'playerCount', 'matchCount'];
-    const sortBy = allowedSortColumns.includes(query.sortBy || 'startsOn') ? query.sortBy || 'startsOn' : 'startsOn';
-    const sortOrder = (query.sortOrder === 'asc' || query.sortOrder === 'desc') ? query.sortOrder : 'desc';
+    const { sortBy, sortOrder } = parseSortParams(
+      { ...query, sortBy: query.sortBy || "startsOn" },
+      allowedSortColumns
+    );
 
     const filters = [];
     const tname = parseStringFilter(query.name);
@@ -41,11 +41,9 @@ export async function registerTournamentRoutes(app: FastifyInstance) {
         sql`${tournaments.name} LIKE ${`%${escapeLikePattern(tname)}%`} ESCAPE '\\'`
       );
     }
-    if (query.status) {
-      const validStatuses = ['draft', 'active', 'completed'];
-      if (validStatuses.includes(query.status)) {
-        filters.push(eq(tournaments.status, query.status as 'draft' | 'active' | 'completed'));
-      }
+    const status = validateTournamentStatus(query.status);
+    if (status) {
+      filters.push(eq(tournaments.status, status as 'draft' | 'active' | 'completed'));
     }
 
     const result = await listTournaments(app.db, clubId, page, limit, sortBy, sortOrder, filters);

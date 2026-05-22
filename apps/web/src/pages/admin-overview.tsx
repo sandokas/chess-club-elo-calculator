@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useClub } from "../contexts/club-context.js";
-import { useClubPlayers, useClubTournaments, useClubTournamentsCount, useClubLeaderboard } from "../lib/hooks/use-clubs.js";
+import { useClubPlayers, useClubTournaments, useClubLeaderboard } from "../lib/hooks/use-clubs.js";
 import { AdminOverviewSkeleton } from "../components/dashboard/admin-overview-skeleton.js";
 import { StatusCard } from "../components/shared/status-card.js";
 import { Button } from "../components/ui/button.js";
@@ -13,12 +13,11 @@ export function AdminOverviewPage() {
   const { club, clubs, isLoading: clubLoading, error: clubError, setCreateClubDialogOpen } = useClub();
   
   const { data: playersData, isLoading: playersLoading, error: playersError } = useClubPlayers(club?.id);
-  const { data: tournamentsData, isLoading: tournamentsLoading, error: tournamentsError } = useClubTournaments(club?.id, 6);
-  const { data: tournamentsCountData, isLoading: tournamentsCountLoading, error: tournamentsCountError } = useClubTournamentsCount(club?.id);
+  const { data: tournamentsData, isLoading: tournamentsLoading, error: tournamentsError } = useClubTournaments(club?.id);
   const { data: leaderboardData, isLoading: leaderboardLoading, error: leaderboardError } = useClubLeaderboard(club?.id, activeOnly, 10);
 
-  const isLoading = clubLoading || playersLoading || tournamentsLoading || tournamentsCountLoading || leaderboardLoading;
-  const error = clubError || playersError || tournamentsError || tournamentsCountError || leaderboardError;
+  const isLoading = clubLoading || playersLoading || tournamentsLoading || leaderboardLoading;
+  const error = clubError || playersError || tournamentsError || leaderboardError;
 
   // No clubs at all: prompt the user to create one
   if (!clubLoading && clubs.length === 0) {
@@ -48,7 +47,7 @@ export function AdminOverviewPage() {
     club: club!,
     players: playersData?.players || [],
     tournaments: tournamentsData?.tournaments || [],
-    totalTournaments: tournamentsCountData?.pagination.total || 0,
+    totalTournaments: tournamentsData?.pagination.total || 0,
     leaderboard: leaderboardData?.leaderboard || []
   };
 

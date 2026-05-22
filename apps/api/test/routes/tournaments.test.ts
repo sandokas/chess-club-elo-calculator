@@ -94,6 +94,24 @@ describe("tournament routes", () => {
     });
   });
 
+  describe("GET /clubs/:clubId/tournaments", () => {
+    it("lists tournaments without requiring create input", async () => {
+      const club = await seedClub(testApp.db);
+      await seedTournament(testApp.db, { clubId: club.id, name: "Dashboard Tournament" });
+
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: `/clubs/${club.id}/tournaments?limit=6`
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().tournaments).toHaveLength(1);
+      expect(response.json().tournaments[0].name).toBe("Dashboard Tournament");
+      expect(response.json().tournaments[0].playerCount).toBe(0);
+      expect(response.json().tournaments[0].matchCount).toBe(0);
+    });
+  });
+
   describe("PUT /tournaments/:id", () => {
     it("updates name and totalRounds on a draft tournament", async () => {
       const club = await seedClub(testApp.db);

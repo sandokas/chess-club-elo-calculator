@@ -20,15 +20,7 @@ export function useClubPlayers(clubId: string | undefined) {
 export function useClubTournaments(clubId: string | undefined, limit?: number) {
   return useQuery({
     queryKey: ["clubs", clubId, "tournaments", limit],
-    queryFn: ({ signal }) => fetchJson<{ tournaments: Tournament[] }>(`/clubs/${clubId}/tournaments?limit=${limit || 6}`, signal),
-    enabled: !!clubId,
-  });
-}
-
-export function useClubTournamentsCount(clubId: string | undefined) {
-  return useQuery({
-    queryKey: ["clubs", clubId, "tournaments", "count"],
-    queryFn: ({ signal }) => fetchJson<{ pagination: { total: number } }>(`/clubs/${clubId}/tournaments?limit=1`, signal),
+    queryFn: ({ signal }) => fetchJson<{ tournaments: Tournament[]; pagination: { total: number } }>(`/clubs/${clubId}/tournaments?limit=${limit || 10}`, signal),
     enabled: !!clubId,
   });
 }

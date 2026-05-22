@@ -1,6 +1,6 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { sql } from "drizzle-orm";
-import { players, playerRatings, matches } from "@chess-club/db";
+import { requireAuth, requireClubRole, type ClubRole } from "../lib/auth/rbac.js";
 
 interface ClubParams {
   clubId: string;
@@ -9,22 +9,13 @@ interface ClubParams {
 export async function registerLeaderboardRoutes(app: FastifyInstance) {
   const REQUIRE_AUTH = process.env.REQUIRE_AUTH === "true";
 
-  const conditionalRequireAuth = async (request: any, reply: any) => {
-    if (!REQUIRE_AUTH) return;
-    // Auth is handled by the RequireAuth plugin in production
-  };
-
-  const conditionalRequireClubRole = (request: any, reply: any, roles: string[]) => {
-    if (!REQUIRE_AUTH) return;
-    const user = request.user;
-    if (!user) {
-      return reply.status(401).send({ error: "Unauthorized", message: "Authentication required" });
-    }
-    // Role checking is handled by the middleware
-  };
+  const conditionalRequireAuth = REQUIRE_AUTH ? requireAuth : async () => {};
+  const conditionalRequireClubRole = (roles: ClubRole[]) => REQUIRE_AUTH
+    ? ((request: any, reply: any) => requireClubRole(request, reply, roles))
+    : async () => {};
 
   // Leaderboard route
-  app.get<{ Params: ClubParams; Querystring: { activeOnly?: string; limit?: string } }>("/clubs/:clubId/leaderboard", { preHandler: [conditionalRequireAuth, (request, reply) => conditionalRequireClubRole(request, reply, ["owner", "admin", "organizer", "member"])] }, async (request) => {
+  app.get<{ Params: ClubParams; Querystring: { activeOnly?: string; limit?: string } }>("/clubs/:clubId/leaderboard", { preHandler: [conditionalRequireAuth, conditionalRequireClubRole(["owner", "admin", "organizer", "member"])] }, async (request) => {
     const activeOnly = request.query.activeOnly !== 'false';
     const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
     const result = await app.db.execute(sql`

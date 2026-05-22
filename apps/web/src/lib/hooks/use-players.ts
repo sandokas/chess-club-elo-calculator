@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchJson, postJson, putJson, deleteJson } from "../http.js";
 import type { PlayersListData, PlayerDetail } from "../types.js";
 
@@ -47,6 +47,7 @@ export function usePlayersList(
     queryKey: ["clubs", clubId, "players", "list", page, limit, sortBy, sortOrder, filters],
     queryFn: ({ signal }) => fetchJson<PlayersListData>(`/clubs/${clubId}/players?${params.toString()}`, signal),
     enabled: !!clubId,
+    placeholderData: keepPreviousData,
   });
 }
 

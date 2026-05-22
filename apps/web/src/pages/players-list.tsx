@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { BackButton } from "../components/shared/back-button.js";
 import { StatusCard } from "../components/shared/status-card.js";
@@ -34,7 +33,7 @@ export function PlayersListPage() {
 
   const filters = { name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore };
 
-  const { data, isLoading, error } = usePlayersList(club?.id, page, limit, sortBy, sortOrder, filters);
+  const { data, isLoading, isFetching, error } = usePlayersList(club?.id, page, limit, sortBy, sortOrder, filters);
 
   const handleSort = (column: string) => {
     const newSortOrder = sortBy === column ? (sortOrder === "asc" ? "desc" : "asc") : "desc";
@@ -220,7 +219,10 @@ export function PlayersListPage() {
                 </div>
               </CollapsibleContent>
             </Collapsible>
-            <CardContent>
+            <CardContent aria-busy={isFetching}>
+              <div className="flex h-5 items-center justify-end text-xs text-muted-foreground" role="status" aria-live="polite">
+                {isFetching && <span>Updating results...</span>}
+              </div>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>

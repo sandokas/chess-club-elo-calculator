@@ -54,7 +54,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkAuth]);
 
   const login = useCallback(() => {
-    window.location.href = "/api/auth/google/start";
+    const webBaseUrl = import.meta.env.VITE_WEB_BASE_URL ?? window.location.origin;
+    window.location.href = `${webBaseUrl}/api/auth/google/start`;
   }, []);
 
   const logout = useCallback(async () => {
