@@ -13,8 +13,8 @@ import { useToast } from "../../hooks/use-toast";
 import { Badge } from "../ui/badge";
 import type { Tournament } from "../../lib/types.js";
 import { cn } from "../../lib/utils.js";
-
-const apiBaseUrl = "/api";
+import { useTournamentPlayers, useAddTournamentPlayer, useCreateTournamentPlayer, useRemoveTournamentPlayer } from "../../lib/hooks/use-tournaments";
+import { useClubPlayers } from "../../lib/hooks/use-clubs";
 
 type TournamentPlayer = {
   playerId: string;
@@ -41,11 +41,6 @@ interface TournamentRosterManagerProps {
 
 export function TournamentRosterManager({ tournament, onUpdated }: TournamentRosterManagerProps) {
   const { toast } = useToast();
-  const [players, setPlayers] = useState<TournamentPlayer[]>([]);
-  const [clubPlayers, setClubPlayers] = useState<ClubPlayer[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAddingPlayer, setIsAddingPlayer] = useState(false);
-  const [isCreatingPlayer, setIsCreatingPlayer] = useState(false);
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
@@ -54,6 +49,16 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
 
   const canEditPairingMethod = tournament.status === "draft";
 
+  const { data: tournamentPlayersData, isLoading: isLoadingPlayers } = useTournamentPlayers(tournament.id);
+  const { data: clubPlayersData } = useClubPlayers(tournament.clubId);
+
+  const addPlayerMutation = useAddTournamentPlayer(tournament.id);
+  const createPlayerMutation = useCreateTournamentPlayer(tournament.id);
+  const removePlayerMutation = useRemoveTournamentPlayer();
+
+  const players = tournamentPlayersData?.players || [];
+  const clubPlayers = clubPlayersData?.players || [];
+
   const addPlayerForm = useForm<{ playerId: string }>({
     defaultValues: { playerId: "" }
   });
@@ -61,11 +66,6 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
   const createPlayerForm = useForm<{ displayName: string }>({
     defaultValues: { displayName: "" }
   });
-
-  useEffect(() => {
-    loadRoster();
-    loadClubPlayers();
-  }, [tournament.id]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -78,125 +78,66 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const loadRoster = async () => {
-    try {
-      const response = await fetch(`${apiBaseUrl}/tournaments/${tournament.id}/players`);
-      if (!response.ok) throw new Error("Failed to load roster");
-      const data = await response.json();
-      setPlayers(data.players);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to load roster",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadClubPlayers = async () => {
-    try {
-      const clubId = tournament.clubId;
-      const params = new URLSearchParams({
-        sortBy: "gamesPlayed",
-        sortOrder: "desc",
-        limit: "100"
-      });
-      const playersResponse = await fetch(`${apiBaseUrl}/clubs/${clubId}/players?${params.toString()}`);
-      if (!playersResponse.ok) return;
-      const playersData = await playersResponse.json();
-      setClubPlayers(playersData.players);
-    } catch (error) {
-      console.error("Failed to load club players:", error);
-    }
-  };
-
   const handleAddExistingPlayer = async (data: { playerId: string }) => {
     if (!data.playerId) return;
-    setIsAddingPlayer(true);
-    try {
-      const response = await fetch(`${apiBaseUrl}/tournaments/${tournament.id}/players`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId: data.playerId }),
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to add player");
+    addPlayerMutation.mutate(data, {
+      onSuccess: () => {
+        toast({
+          title: "Player added",
+          description: "Player has been added to the tournament.",
+        });
+        addPlayerForm.reset();
+        onUpdated();
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to add player",
+          variant: "destructive",
+        });
       }
-      toast({
-        title: "Player added",
-        description: "Player has been added to the tournament.",
-      });
-      addPlayerForm.reset();
-      loadRoster();
-      loadClubPlayers();
-      onUpdated();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add player",
-        variant: "destructive",
-      });
-    } finally {
-      setIsAddingPlayer(false);
-    }
+    });
   };
 
   const handleCreateAndAddPlayer = async (data: { displayName: string }) => {
     if (!data.displayName) return;
-    setIsCreatingPlayer(true);
-    try {
-      const response = await fetch(`${apiBaseUrl}/tournaments/${tournament.id}/players/new`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: data.displayName }),
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to create player");
+    createPlayerMutation.mutate(data, {
+      onSuccess: () => {
+        toast({
+          title: "Player created",
+          description: "New player has been created and added to the tournament.",
+        });
+        createPlayerForm.reset();
+        onUpdated();
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to create player",
+          variant: "destructive",
+        });
       }
-      toast({
-        title: "Player created",
-        description: "New player has been created and added to the tournament.",
-      });
-      createPlayerForm.reset();
-      loadRoster();
-      loadClubPlayers();
-      onUpdated();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create player",
-        variant: "destructive",
-      });
-    } finally {
-      setIsCreatingPlayer(false);
-    }
+    });
   };
 
   const handleRemovePlayer = async (playerId: string) => {
     if (!confirm("Are you sure you want to remove this player from the tournament?")) return;
-    try {
-      const response = await fetch(`${apiBaseUrl}/tournaments/${tournament.id}/players/${playerId}`, {
-        method: "DELETE",
-      });
-      if (!response.ok) throw new Error("Failed to remove player");
-      toast({
-        title: "Player removed",
-        description: "Player has been removed from the tournament.",
-      });
-      loadRoster();
-      loadClubPlayers();
-      onUpdated();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to remove player",
-        variant: "destructive",
-      });
-    }
+    removePlayerMutation.mutate({ tournamentId: tournament.id, playerId }, {
+      onSuccess: () => {
+        toast({
+          title: "Player removed",
+          description: "Player has been removed from the tournament.",
+        });
+        onUpdated();
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to remove player",
+          variant: "destructive",
+        });
+      }
+    });
   };
 
   const availablePlayers = clubPlayers
@@ -302,7 +243,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
                     setShowDropdown(true);
                   }}
                   onFocus={() => setShowDropdown(true)}
-                  disabled={isAddingPlayer || availablePlayers.length === 0}
+                  disabled={addPlayerMutation.isPending || availablePlayers.length === 0}
                   className="pl-9"
                 />
                 {searchQuery && (
@@ -329,7 +270,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
                     key={player.id}
                     type="button"
                     onClick={() => handleSelectPlayer(player.id)}
-                    disabled={isAddingPlayer}
+                    disabled={addPlayerMutation.isPending}
                     className="w-full px-3 py-2 text-left hover:bg-accent flex items-center justify-between group"
                   >
                     <div className="flex flex-col">
@@ -362,10 +303,10 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
             <Input
               {...createPlayerForm.register("displayName")}
               placeholder="New player name"
-              disabled={isCreatingPlayer}
+              disabled={createPlayerMutation.isPending}
             />
-            <Button type="submit" disabled={isCreatingPlayer}>
-              {isCreatingPlayer ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+            <Button type="submit" disabled={createPlayerMutation.isPending}>
+              {createPlayerMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
             </Button>
           </form>
         </CardContent>
@@ -384,7 +325,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoadingPlayers ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>

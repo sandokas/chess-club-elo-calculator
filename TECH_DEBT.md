@@ -70,6 +70,14 @@ Add new items under `Open Items` when work is deliberately postponed. Each item 
 - **Future fix**: Investigate one of: (a) `tsx watch --poll` with a tuned polling interval, (b) `nodemon` with `--legacy-watch`, (c) named-volume-based source sync instead of bind mount, or (d) running the API directly on the host outside Docker in dev.
 - **Trigger**: When backend iteration speed becomes a bottleneck, or when contributors on non-Windows hosts want HMR.
 
+### Permission testing without Google OAuth
+
+- **Status**: open
+- **Context**: The GET /clubs endpoint filters clubs by user membership when `REQUIRE_AUTH=true`, but this authorization logic is not tested because the test environment has `REQUIRE_AUTH=false`. Testing this would require either setting `REQUIRE_AUTH=true` globally (which would affect other tests) or mocking the environment.
+- **Risk**: Authorization bugs in club membership filtering could go undetected. The `requireClubRole` middleware is tested in isolation, but the route-level filtering logic is not.
+- **Future fix**: Add a way to test permission scenarios without requiring Google OAuth. Options: (a) mock `loadEnv()` to return `REQUIRE_AUTH=true` for specific tests, (b) add a test-specific environment variable override mechanism, (c) add integration tests that use the test DB with auth enabled.
+- **Trigger**: Before enabling `REQUIRE_AUTH=true` in production, or when adding more authorization-dependent routes.
+
 ## Resolved Items
 
 ### Python CLI and documentation cleanup

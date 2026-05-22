@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Pencil, Loader2 } from "lucide-react";
@@ -16,8 +15,8 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
 import { useToast } from "../../hooks/use-toast";
-import { putJson } from "../../lib/api";
 import { playerEditSchema, type PlayerEditInput } from "../../lib/schemas";
+import { useUpdatePlayer } from "../../lib/hooks/use-players";
 
 type Player = {
   id: string;
@@ -34,7 +33,7 @@ interface EditPlayerDialogProps {
 
 export function EditPlayerDialog({ player, open, onOpenChange, onSaved }: EditPlayerDialogProps) {
   const { toast } = useToast();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const updatePlayer = useUpdatePlayer(player.id);
 
   const form = useForm<PlayerEditInput>({
     resolver: zodResolver(playerEditSchema),
@@ -45,24 +44,23 @@ export function EditPlayerDialog({ player, open, onOpenChange, onSaved }: EditPl
   });
 
   const onSubmit = async (data: PlayerEditInput) => {
-    setIsSubmitting(true);
-    try {
-      await putJson<{ player: Player }>(`/players/${player.id}`, data);
-      toast({
-        title: "Player updated",
-        description: "Player details have been updated successfully.",
-      });
-      onOpenChange(false);
-      onSaved();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update player",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+    updatePlayer.mutate(data, {
+      onSuccess: () => {
+        toast({
+          title: "Player updated",
+          description: "Player details have been updated successfully.",
+        });
+        onOpenChange(false);
+        onSaved();
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to update player",
+          variant: "destructive",
+        });
+      }
+    });
   };
 
   return (
@@ -80,7 +78,7 @@ export function EditPlayerDialog({ player, open, onOpenChange, onSaved }: EditPl
             <Input
               id="displayName"
               {...form.register("displayName")}
-              disabled={isSubmitting}
+              disabled={updatePlayer.isPending}
             />
             {form.formState.errors.displayName && (
               <p className="text-sm text-destructive">{form.formState.errors.displayName.message}</p>
@@ -91,7 +89,7 @@ export function EditPlayerDialog({ player, open, onOpenChange, onSaved }: EditPl
               id="active"
               checked={form.watch("active")}
               onCheckedChange={(checked) => form.setValue("active", checked)}
-              disabled={isSubmitting}
+              disabled={updatePlayer.isPending}
             />
             <Label htmlFor="active" className="cursor-pointer">
               Active
@@ -102,12 +100,12 @@ export function EditPlayerDialog({ player, open, onOpenChange, onSaved }: EditPl
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
+              disabled={updatePlayer.isPending}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
+            <Button type="submit" disabled={updatePlayer.isPending}>
+              {updatePlayer.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Saving...

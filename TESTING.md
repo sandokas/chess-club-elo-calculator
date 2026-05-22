@@ -11,7 +11,7 @@ This repo has one consistent test convention. There is no separate "integration"
 | Where | What | Database |
 |---|---|---|
 | `apps/api/test/lib/**` (pure-logic subfolders only, e.g. `swiss-pairing.test.ts`, `validators.test.ts`, `errors.test.ts`) | Pure functions: Elo math, Glicko, Swiss pairing, validators, error formatters. No I/O. | None |
-| `apps/api/test/lib/auth/**`, `apps/api/test/routes/**`, `apps/api/test/*.test.ts` | Everything that touches DB, HTTP, cookies, sessions, RBAC, routes. | Real `chess_club_test` Postgres |
+| `apps/api/test/lib/auth/**`, `apps/api/test/routes/**`, `apps/api/test/*.test.ts` | Everything that touches DB, HTTP, cookies, sessions, RBAC, routes. Route handlers are organized in `src/routes/` by domain. | Real `chess_club_test` Postgres |
 
 If your code reads or writes the database, **your test runs against real Postgres**. No mocks.
 

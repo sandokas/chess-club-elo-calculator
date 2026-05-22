@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-
-const apiBaseUrl = "/api";
+import { apiBaseUrl } from '../lib/http.js';
 
 type Club = {
   id: string;

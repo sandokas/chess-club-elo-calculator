@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../ui/dialog.js";
 import { Button } from "../ui/button.js";
 import { Input } from "../ui/input.js";
@@ -6,6 +6,7 @@ import { Label } from "../ui/label.js";
 import { Textarea } from "../ui/textarea.js";
 import { useAuth } from "../../contexts/auth-context.js";
 import { useToast } from "../../hooks/use-toast";
+import { useCreateJoinRequest } from "../../lib/hooks/use-invites.js";
 
 interface JoinClubDialogProps {
   open: boolean;
@@ -18,42 +19,29 @@ export function JoinClubDialog({ open, onOpenChange, clubId, clubName }: JoinClu
   const { user } = useAuth();
   const { toast } = useToast();
   const [message, setMessage] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const createJoinRequest = useCreateJoinRequest(clubId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    setIsSubmitting(true);
-    try {
-      const response = await fetch(`/api/clubs/${clubId}/join-requests`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ message: message || undefined })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to submit join request");
+    createJoinRequest.mutate({ message: message || undefined }, {
+      onSuccess: () => {
+        toast({
+          title: "Join request submitted",
+          description: "Your request to join this club has been submitted. An admin will review it.",
+        });
+        onOpenChange(false);
+        setMessage("");
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to submit join request",
+          variant: "destructive"
+        });
       }
-
-      toast({
-        title: "Join request submitted",
-        description: "Your request to join this club has been submitted. An admin will review it."
-      });
-
-      onOpenChange(false);
-      setMessage("");
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to submit join request",
-        variant: "destructive"
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   return (
@@ -82,8 +70,8 @@ export function JoinClubDialog({ open, onOpenChange, clubId, clubName }: JoinClu
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Submitting..." : "Submit Request"}
+            <Button type="submit" disabled={createJoinRequest.isPending}>
+              {createJoinRequest.isPending ? "Submitting..." : "Submit Request"}
             </Button>
           </DialogFooter>
         </form>

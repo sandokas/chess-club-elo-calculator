@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Pencil, Loader2, AlertCircle, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "../ui/button";
 import {
@@ -15,8 +16,8 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { useToast } from "../../hooks/use-toast";
-import { putJson, deleteJson } from "../../lib/api";
 import { tournamentEditSchema, type TournamentEditInput } from "../../lib/schemas";
+import { useUpdateTournament, useDeleteTournament } from "../../lib/hooks/use-tournaments";
 
 type Tournament = {
   id: string;
@@ -36,8 +37,9 @@ interface EditTournamentDialogProps {
 
 export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }: EditTournamentDialogProps) {
   const { toast } = useToast();
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const navigate = useNavigate();
+  const updateTournament = useUpdateTournament(tournament.id);
+  const deleteTournament = useDeleteTournament();
   const isCompleted = tournament.status === "completed";
   const isDraft = tournament.status === "draft";
 
@@ -55,48 +57,46 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
   const currentStatus = form.watch("status");
 
   const onSubmit = async (data: TournamentEditInput) => {
-    setIsSubmitting(true);
-    try {
-      await putJson<{ tournament: Tournament }>(`/tournaments/${tournament.id}`, data);
-      toast({
-        title: "Tournament updated",
-        description: "Tournament details have been updated successfully.",
-      });
-      onOpenChange(false);
-      onSaved();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update tournament",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+    updateTournament.mutate(data, {
+      onSuccess: () => {
+        toast({
+          title: "Tournament updated",
+          description: "Tournament details have been updated successfully.",
+        });
+        onOpenChange(false);
+        onSaved();
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to update tournament",
+          variant: "destructive",
+        });
+      }
+    });
   };
 
   const handleDelete = async () => {
     if (!confirm(`Are you sure you want to delete "${tournament.name}"? This action cannot be undone.`)) {
       return;
     }
-    setIsDeleting(true);
-    try {
-      await deleteJson(`/tournaments/${tournament.id}`);
-      toast({
-        title: "Tournament deleted",
-        description: "Tournament has been deleted successfully.",
-      });
-      onOpenChange(false);
-      window.location.href = "/tournaments";
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete tournament",
-        variant: "destructive",
-      });
-    } finally {
-      setIsDeleting(false);
-    }
+    deleteTournament.mutate(tournament.id, {
+      onSuccess: () => {
+        toast({
+          title: "Tournament deleted",
+          description: "Tournament has been deleted successfully.",
+        });
+        onOpenChange(false);
+        navigate("/tournaments");
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to delete tournament",
+          variant: "destructive",
+        });
+      }
+    });
   };
 
   return (
@@ -114,7 +114,7 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
             <Input
               id="name"
               {...form.register("name")}
-              disabled={isSubmitting || isCompleted}
+              disabled={updateTournament.isPending || isCompleted}
             />
             {form.formState.errors.name && (
               <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
@@ -126,7 +126,7 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
               id="startsOn"
               type="date"
               {...form.register("startsOn")}
-              disabled={isSubmitting || isCompleted}
+              disabled={updateTournament.isPending || isCompleted}
             />
             {form.formState.errors.startsOn && (
               <p className="text-sm text-destructive">{form.formState.errors.startsOn.message}</p>
@@ -137,7 +137,7 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
             <select
               id="status"
               {...form.register("status")}
-              disabled={isSubmitting}
+              disabled={updateTournament.isPending}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="draft">Draft</option>
@@ -158,7 +158,7 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
               {...form.register("totalRounds", {
                 setValueAs: (v) => v === "" || v === null ? null : Number(v)
               })}
-              disabled={isSubmitting}
+              disabled={updateTournament.isPending}
             />
             {form.formState.errors.totalRounds && (
               <p className="text-sm text-destructive">{form.formState.errors.totalRounds.message}</p>
@@ -170,7 +170,7 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
               <select
                 id="pairingMethod"
                 {...form.register("pairingMethod")}
-                disabled={isSubmitting || !isDraft}
+                disabled={updateTournament.isPending || !isDraft}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="seeded_by_rating">Seeded by Rating</option>
@@ -200,9 +200,9 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
                 type="button"
                 variant="destructive"
                 onClick={handleDelete}
-                disabled={isDeleting || isSubmitting}
+                disabled={deleteTournament.isPending || updateTournament.isPending}
               >
-                {isDeleting ? (
+                {deleteTournament.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Deleting...
@@ -219,12 +219,12 @@ export function EditTournamentDialog({ tournament, open, onOpenChange, onSaved }
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={isSubmitting || isDeleting}
+              disabled={updateTournament.isPending || deleteTournament.isPending}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || isDeleting}>
-              {isSubmitting ? (
+            <Button type="submit" disabled={updateTournament.isPending || deleteTournament.isPending}>
+              {updateTournament.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Saving...

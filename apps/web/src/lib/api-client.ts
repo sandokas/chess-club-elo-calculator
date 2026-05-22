@@ -1,18 +1,5 @@
 import type { Player, PlayersListData, PlayerDetail } from "./types.js";
-
-const apiBaseUrl = "/api";
-
-async function fetchJson<T>(path: string, signal: AbortSignal): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, { signal });
-  if (!response.ok) {
-    if (response.status === 404) {
-      const error = await response.json();
-      throw new Error(error.message || "Not found");
-    }
-    throw new Error(`API responded with ${response.status} for ${path}`);
-  }
-  return response.json() as Promise<T>;
-}
+import { fetchJson, postJson } from "./http.js";
 
 export async function createClub(
   name: string,
@@ -20,18 +7,7 @@ export async function createClub(
   city?: string,
   country?: string
 ): Promise<{ id: string; name: string; slug: string; description: string | null; city: string | null; country: string | null }> {
-  const response = await fetch(`${apiBaseUrl}/clubs`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, description, city, country }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.message || "Failed to create club");
-  }
-
-  return response.json();
+  return postJson("/clubs", { name, description, city, country });
 }
 
 export async function loadPlayersList(

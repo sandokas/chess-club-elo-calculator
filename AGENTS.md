@@ -20,6 +20,7 @@ This is non-negotiable. If you find yourself about to copy a value, a helper, a 
 
 - If two files need the same helper, extract it to a shared package (`packages/config`, `packages/core`, `packages/db`). Never copy-paste.
 - Re-export from a single canonical module rather than maintaining mirrors.
+- Route handlers are organized in `apps/api/src/routes/` by domain. When adding new routes, follow the existing pattern and register them in `apps/api/src/app.ts`.
 
 ### Defaults
 

@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card.js";
 import { Button } from "../ui/button.js";
 import { Badge } from "../ui/badge.js";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select.js";
 import { useAuth } from "../../contexts/auth-context.js";
 import { useToast } from "../../hooks/use-toast";
+import { useClubJoinRequests, useProcessJoinRequest } from "../../lib/hooks/use-invites.js";
+import { useClubPlayers } from "../../lib/hooks/use-clubs.js";
 
 interface JoinRequest {
   id: string;
@@ -29,39 +31,14 @@ interface JoinRequestsManagerProps {
 export function JoinRequestsManager({ clubId }: JoinRequestsManagerProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
-  const [clubPlayers, setClubPlayers] = useState<ClubPlayer[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [selectedPlayerMap, setSelectedPlayerMap] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (!user) return;
+  const { data: joinRequestsData, isLoading } = useClubJoinRequests(clubId);
+  const { data: clubPlayersData } = useClubPlayers(clubId);
+  const processJoinRequest = useProcessJoinRequest(clubId);
 
-    const fetchData = async () => {
-      try {
-        const [requestsRes, playersRes] = await Promise.all([
-          fetch(`/api/clubs/${clubId}/join-requests`, { credentials: "include" }),
-          fetch(`/api/clubs/${clubId}/players`, { credentials: "include" })
-        ]);
-
-        if (requestsRes.ok) {
-          const requestsData = await requestsRes.json();
-          setJoinRequests(requestsData.joinRequests || []);
-        }
-
-        if (playersRes.ok) {
-          const playersData = await playersRes.json();
-          setClubPlayers(playersData.players || []);
-        }
-      } catch (error) {
-        console.error("Failed to fetch data:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [user, clubId]);
+  const joinRequests = joinRequestsData?.joinRequests || [];
+  const clubPlayers = clubPlayersData?.players || [];
 
   const handleAccept = async (requestId: string) => {
     const playerId = selectedPlayerMap[requestId];
@@ -74,66 +51,50 @@ export function JoinRequestsManager({ clubId }: JoinRequestsManagerProps) {
       return;
     }
 
-    try {
-      const response = await fetch(`/api/clubs/${clubId}/join-requests/${requestId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "accept", playerId })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to accept request");
+    processJoinRequest.mutate({
+      requestId,
+      data: { action: "accept", playerId }
+    }, {
+      onSuccess: () => {
+        toast({
+          title: "Request accepted",
+          description: "The join request has been accepted and the player has been linked.",
+        });
+        setSelectedPlayerMap(prev => {
+          const updated = { ...prev };
+          delete updated[requestId];
+          return updated;
+        });
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to accept request",
+          variant: "destructive"
+        });
       }
-
-      toast({
-        title: "Request accepted",
-        description: "The join request has been accepted and the player has been linked."
-      });
-
-      setJoinRequests(prev => prev.filter(req => req.id !== requestId));
-      setSelectedPlayerMap(prev => {
-        const updated = { ...prev };
-        delete updated[requestId];
-        return updated;
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to accept request",
-        variant: "destructive"
-      });
-    }
+    });
   };
 
   const handleReject = async (requestId: string) => {
-    try {
-      const response = await fetch(`/api/clubs/${clubId}/join-requests/${requestId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ action: "reject" })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to reject request");
+    processJoinRequest.mutate({
+      requestId,
+      data: { action: "reject" }
+    }, {
+      onSuccess: () => {
+        toast({
+          title: "Request rejected",
+          description: "The join request has been rejected.",
+        });
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to reject request",
+          variant: "destructive"
+        });
       }
-
-      toast({
-        title: "Request rejected",
-        description: "The join request has been rejected."
-      });
-
-      setJoinRequests(prev => prev.filter(req => req.id !== requestId));
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to reject request",
-        variant: "destructive"
-      });
-    }
+    });
   };
 
   if (isLoading) {
@@ -191,7 +152,7 @@ export function JoinRequestsManager({ clubId }: JoinRequestsManagerProps) {
                 <Button
                   size="sm"
                   onClick={() => handleAccept(request.id)}
-                  disabled={!selectedPlayerMap[request.id]}
+                  disabled={!selectedPlayerMap[request.id] || processJoinRequest.isPending}
                 >
                   Accept
                 </Button>
@@ -199,6 +160,7 @@ export function JoinRequestsManager({ clubId }: JoinRequestsManagerProps) {
                   size="sm"
                   variant="outline"
                   onClick={() => handleReject(request.id)}
+                  disabled={processJoinRequest.isPending}
                 >
                   Reject
                 </Button>

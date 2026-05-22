@@ -15,8 +15,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { useToast } from "../../hooks/use-toast";
-
-const apiBaseUrl = "/api";
+import { apiBaseUrl } from "../../lib/http.js";
 
 const roundStartSchema = z.object({
   startsOn: z.string().min(1, "Start date and time is required"),

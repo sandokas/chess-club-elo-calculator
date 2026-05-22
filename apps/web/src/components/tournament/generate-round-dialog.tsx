@@ -13,8 +13,7 @@ import {
 import { useToast } from "../../hooks/use-toast";
 import type { Tournament } from "../../lib/types.js";
 import { getCurrentDateTime } from "../../lib/date-utils.js";
-
-const apiBaseUrl = "/api";
+import { apiBaseUrl } from "../../lib/http.js";
 
 interface GenerateRoundDialogProps {
   tournament: Partial<Tournament>;

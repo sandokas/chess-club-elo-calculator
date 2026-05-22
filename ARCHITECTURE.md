@@ -4,8 +4,8 @@ This repository contains a TypeScript web application for chess club management.
 
 ## Monorepo Layout
 
-- `apps/api` - Fastify API server. Contains rating calculation logic (Elo, Glicko-2) in `src/lib/ratings/`.
-- `apps/web` - React + Vite frontend shell.
+- `apps/api` - Fastify API server. Contains rating calculation logic (Elo, Glicko-2) in `src/lib/ratings/`. Route handlers are organized in `src/routes/` by domain.
+- `apps/web` - React + Vite frontend shell. Page components are organized in `src/pages/` by feature.
 - `packages/config` - shared environment validation.
 - `packages/db` - Drizzle schema, PostgreSQL client, migrations, and SQLite import scripts.
 

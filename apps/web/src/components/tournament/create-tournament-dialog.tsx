@@ -17,8 +17,7 @@ import { Label } from "../ui/label";
 import { useToast } from "../../hooks/use-toast";
 import { tournamentCreateSchema, type TournamentCreateInput } from "../../lib/schemas";
 import { getCurrentDateTime } from "../../lib/date-utils";
-
-const apiBaseUrl = "/api";
+import { useCreateTournament } from "../../lib/hooks/use-tournaments";
 
 interface CreateTournamentDialogProps {
   clubId: string;
@@ -29,7 +28,7 @@ interface CreateTournamentDialogProps {
 
 export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }: CreateTournamentDialogProps) {
   const { toast } = useToast();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const createTournament = useCreateTournament(clubId);
 
   const form = useForm<TournamentCreateInput>({
     resolver: zodResolver(tournamentCreateSchema),
@@ -43,44 +42,30 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
   });
 
   const onSubmit = async (data: TournamentCreateInput) => {
-    setIsSubmitting(true);
-    try {
-      // If no start date is provided, use current date/time
-      const submissionData = {
-        ...data,
-        startsOn: data.startsOn || getCurrentDateTime(),
-      };
+    const submissionData = {
+      ...data,
+      startsOn: data.startsOn || getCurrentDateTime(),
+      totalRounds: data.totalRounds ?? undefined,
+    };
 
-      const response = await fetch(`${apiBaseUrl}/clubs/${clubId}/tournaments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(submissionData),
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: "Unknown error" }));
-        throw new Error(error.message || `API responded with ${response.status}`);
+    createTournament.mutate(submissionData, {
+      onSuccess: (result) => {
+        toast({
+          title: "Tournament created",
+          description: "Tournament has been created successfully.",
+        });
+        onOpenChange(false);
+        onCreated(result.tournament.id);
+        form.reset();
+      },
+      onError: (error) => {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to create tournament",
+          variant: "destructive",
+        });
       }
-
-      const result = await response.json();
-      toast({
-        title: "Tournament created",
-        description: "Tournament has been created successfully.",
-      });
-      onOpenChange(false);
-      onCreated(result.tournament.id);
-      form.reset();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create tournament",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+    });
   };
 
   return (
@@ -98,7 +83,7 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
             <Input
               id="name"
               {...form.register("name")}
-              disabled={isSubmitting}
+              disabled={createTournament.isPending}
               placeholder="Tournament name"
             />
             {form.formState.errors.name && (
@@ -110,7 +95,7 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
             <select
               id="format"
               {...form.register("format")}
-              disabled={isSubmitting}
+              disabled={createTournament.isPending}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="swiss">Swiss</option>
@@ -126,7 +111,7 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
               id="startsOn"
               type="datetime-local"
               {...form.register("startsOn")}
-              disabled={isSubmitting}
+              disabled={createTournament.isPending}
             />
             {form.formState.errors.startsOn && (
               <p className="text-sm text-destructive">{form.formState.errors.startsOn.message}</p>
@@ -142,7 +127,7 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
               {...form.register("totalRounds", { 
                 setValueAs: (v) => v === "" ? undefined : Number(v)
               })}
-              disabled={isSubmitting}
+              disabled={createTournament.isPending}
               placeholder="Auto-suggested based on players"
             />
             {form.formState.errors.totalRounds && (
@@ -154,7 +139,7 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
             <select
               id="pairingMethod"
               {...form.register("pairingMethod")}
-              disabled={isSubmitting}
+              disabled={createTournament.isPending}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="seeded_by_rating">Seeded by Rating</option>
@@ -169,12 +154,12 @@ export function CreateTournamentDialog({ clubId, open, onOpenChange, onCreated }
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={isSubmitting}
+              disabled={createTournament.isPending}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
+            <Button type="submit" disabled={createTournament.isPending}>
+              {createTournament.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Creating...

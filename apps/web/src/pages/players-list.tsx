@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { BackButton } from "../components/shared/back-button.js";
 import { StatusCard } from "../components/shared/status-card.js";
@@ -8,18 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table.js";
 import { Badge } from "../components/ui/badge.js";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../components/ui/collapsible.js";
-import { loadPlayersList } from "../lib/api-client.js";
 import { formatRating, formatDate } from "../lib/formatters.js";
-import type { PlayersListData } from "../lib/types.js";
 import { useClub } from "../contexts/club-context.js";
-
-type PlayersListState =
-  | { status: "loading" }
-  | { status: "ok"; data: PlayersListData }
-  | { status: "error"; message: string };
+import { usePlayersList } from "../lib/hooks/use-players.js";
 
 export function PlayersListPage() {
-  const [state, setState] = useState<PlayersListState>({ status: "loading" });
   const [searchParams, setSearchParams] = useSearchParams();
   const { club, isLoading: clubLoading, error: clubError } = useClub();
 
@@ -39,36 +32,9 @@ export function PlayersListPage() {
   const lastGameDateAfter = searchParams.get("lastGameDateAfter") || "";
   const lastGameDateBefore = searchParams.get("lastGameDateBefore") || "";
 
-  useEffect(() => {
-    if (clubLoading || !club) return;
-    if (clubError) {
-      setState({ status: "error", message: clubError });
-      return;
-    }
+  const filters = { name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore };
 
-    const controller = new AbortController();
-
-    loadPlayersList(controller.signal, page, limit, sortBy, sortOrder, name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore, club)
-      .then((data) => {
-        setState({ status: "ok", data });
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-        if (error instanceof Error && error.message === "Page exceeds total pages") {
-          // Redirect to first page
-          setSearchParams({ page: "1", sortBy, sortOrder, limit: limit.toString(), name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore });
-          return;
-        }
-        setState({
-          status: "error",
-          message: error instanceof Error ? error.message : "Unable to load players"
-        });
-      });
-
-    return () => controller.abort();
-  }, [page, limit, sortBy, sortOrder, name, active, eloMin, eloMax, glickoMin, glickoMax, gamesPlayedMin, gamesPlayedMax, lastGameDateAfter, lastGameDateBefore, club, clubLoading, clubError]);
+  const { data, isLoading, error } = usePlayersList(club?.id, page, limit, sortBy, sortOrder, filters);
 
   const handleSort = (column: string) => {
     const newSortOrder = sortBy === column ? (sortOrder === "asc" ? "desc" : "asc") : "desc";
@@ -93,6 +59,18 @@ export function PlayersListPage() {
 
   const hasFilters = name || active || eloMin || eloMax || glickoMin || glickoMax || gamesPlayedMin || gamesPlayedMax || lastGameDateAfter || lastGameDateBefore;
 
+  if (clubLoading || isLoading) {
+    return <AdminOverviewSkeleton />;
+  }
+
+  if (clubError || error) {
+    return <StatusCard title="Unable to load players" message={typeof clubError === 'string' ? clubError : typeof error === 'string' ? error : "Unknown error"} tone="error" />;
+  }
+
+  if (!data) {
+    return <StatusCard title="No data" message="No players data available" tone="error" />;
+  }
+
   return (
     <section className="space-y-6 sm:space-y-8" aria-labelledby="players-title">
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
@@ -103,49 +81,45 @@ export function PlayersListPage() {
         <h1 id="players-title" className="text-2xl sm:text-3xl font-bold">All Players</h1>
       </header>
 
-      {state.status === "loading" && <AdminOverviewSkeleton />}
-      {state.status === "error" && <StatusCard title="Unable to load players" message={state.message} tone="error" />}
-      {state.status === "ok" && (
-        <>
-          <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Players summary">
-            <StatCard label="Total players" value={state.data.pagination.total} />
-            <StatCard label="Current page" value={state.data.pagination.page} />
-            <StatCard label="Per page" value={state.data.pagination.limit} />
-            <StatCard label="Total pages" value={state.data.pagination.totalPages} />
-          </section>
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Players summary">
+        <StatCard label="Total players" value={data.pagination.total} />
+        <StatCard label="Current page" value={data.pagination.page} />
+        <StatCard label="Per page" value={data.pagination.limit} />
+        <StatCard label="Total pages" value={data.pagination.totalPages} />
+      </section>
 
-          <Card>
-            <Collapsible>
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <CardTitle className="text-lg sm:text-xl">Players</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <CollapsibleTrigger asChild>
-                      <button className="text-xs sm:text-sm text-primary hover:underline">
-                        Filters {hasFilters && "(active)"}
-                      </button>
-                    </CollapsibleTrigger>
-                    {hasFilters && (
-                      <button onClick={clearFilters} className="text-xs sm:text-sm text-muted-foreground hover:underline">
-                        Clear all
-                      </button>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs sm:text-sm text-muted-foreground">Show:</span>
-                      {[10, 20, 50].map((l) => (
-                        <button
-                          key={l}
-                          onClick={() => handleLimitChange(l)}
-                          className={`text-xs sm:text-sm px-2 py-1 rounded ${limit === l ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
-                        >
-                          {l}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+      <Card>
+        <Collapsible>
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <CardTitle className="text-lg sm:text-xl">Players</CardTitle>
+              <div className="flex items-center gap-2">
+                <CollapsibleTrigger asChild>
+                  <button className="text-xs sm:text-sm text-primary hover:underline">
+                    Filters {hasFilters && "(active)"}
+                  </button>
+                </CollapsibleTrigger>
+                {hasFilters && (
+                  <button onClick={clearFilters} className="text-xs sm:text-sm text-muted-foreground hover:underline">
+                    Clear all
+                  </button>
+                )}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs sm:text-sm text-muted-foreground">Show:</span>
+                  {[10, 20, 50].map((l) => (
+                    <button
+                      key={l}
+                      onClick={() => handleLimitChange(l)}
+                      className={`text-xs sm:text-sm px-2 py-1 rounded ${limit === l ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}
+                    >
+                      {l}
+                    </button>
+                  ))}
                 </div>
-              </CardHeader>
-              <CollapsibleContent className="px-6 pb-4">
+              </div>
+            </div>
+          </CardHeader>
+          <CollapsibleContent className="px-6 pb-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-4 border-t">
                   <div className="space-y-2">
                     <label className="text-xs sm:text-sm font-medium">Name</label>
@@ -272,7 +246,7 @@ export function PlayersListPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {state.data.players.map((player) => (
+                    {data.players.map((player: any) => (
                       <TableRow key={player.id}>
                         <TableCell><Link to={`/players/${player.id}`} className="font-medium hover:underline text-sm sm:text-base">{player.displayName}</Link></TableCell>
                         <TableCell className="hidden sm:table-cell">
@@ -300,24 +274,22 @@ export function PlayersListPage() {
                     Previous
                   </button>
                   <span className="text-sm text-muted-foreground">
-                    Page {page} of {state.data.pagination.totalPages}
+                    Page {page} of {data.pagination.totalPages}
                   </span>
                   <button
                     onClick={() => handlePageChange(page + 1)}
-                    disabled={page === state.data.pagination.totalPages}
+                    disabled={page === data.pagination.totalPages}
                     className="px-3 py-1 text-sm rounded bg-muted hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next
                   </button>
                 </div>
                 <span className="text-xs sm:text-sm text-muted-foreground">
-                  Showing {((page - 1) * limit) + 1}-{Math.min(page * limit, state.data.pagination.total)} of {state.data.pagination.total}
+                  Showing {((page - 1) * limit) + 1}-{Math.min(page * limit, data.pagination.total)} of {data.pagination.total}
                 </span>
               </div>
             </CardContent>
           </Card>
-        </>
-      )}
     </section>
   );
 }

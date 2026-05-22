@@ -11,8 +11,7 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { useToast } from "../../hooks/use-toast";
-
-const apiBaseUrl = "/api";
+import { apiBaseUrl } from "../../lib/http.js";
 
 interface Match {
   id: string;
