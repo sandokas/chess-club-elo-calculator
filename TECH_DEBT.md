@@ -78,6 +78,14 @@ Add new items under `Open Items` when work is deliberately postponed. Each item 
 - **Future fix**: Add a way to test permission scenarios without requiring Google OAuth. Options: (a) mock `loadEnv()` to return `REQUIRE_AUTH=true` for specific tests, (b) add a test-specific environment variable override mechanism, (c) add integration tests that use the test DB with auth enabled.
 - **Trigger**: Before enabling `REQUIRE_AUTH=true` in production, or when adding more authorization-dependent routes.
 
+### TypeScript strict null check errors in tournament-rounds.ts
+
+- **Status**: open
+- **Context**: The `tournament-rounds.ts` route file has multiple TypeScript lint errors about "Object is possibly 'undefined'" and "'match' is possibly 'undefined'". These occur when accessing properties on database query results that might be null/undefined.
+- **Risk**: Runtime errors if the code assumes objects exist when they don't. The errors indicate missing null checks which could cause crashes in production.
+- **Future fix**: Add proper null/undefined checks using optional chaining (`?.`) or explicit null checks before accessing properties. Consider using Drizzle's `.get()` method or adding runtime validation for query results.
+- **Trigger**: Before merging the refactor branch to main, or when adding new match/round operations.
+
 ## Resolved Items
 
 ### Python CLI and documentation cleanup
