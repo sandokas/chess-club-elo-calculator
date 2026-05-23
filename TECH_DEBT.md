@@ -50,8 +50,8 @@ Add new items under `Open Items` when work is deliberately postponed. Each item 
 - **Status**: open
 - **Context**: `apps/api/test/setup.ts` wipes every app table in a global `beforeEach` using `TRUNCATE ... RESTART IDENTITY CASCADE`. Each test starts from an empty database. See `TESTING.md`.
 - **Risk**: Each test pays ~30 ms for the wipe. Negligible today (~15 s total suite) but a per-test transactional rollback would be ~1 ms.
-- **Future fix**: Switch to per-test transactional isolation (open a transaction in `beforeEach`, roll back in `afterEach`). Requires every route under test to use the same connection/transaction — i.e. all routes on `app.db` (Drizzle) with a per-request transaction context. Currently routes mix `app.pg` (raw `pg.Pool`) and `app.db` and would not participate in a shared transaction.
-- **Trigger**: After all routes under `apps/api/src/routes/**` are migrated to `app.db`. Then add a per-request transaction context plugin and flip the test helper.
+- **Future fix**: Switch to per-test transactional isolation (open a transaction in `beforeEach`, roll back in `afterEach`). Routes now use `app.db`, but this still requires a per-request transaction context so every query in a request uses the same transaction-bound client.
+- **Trigger**: When test runtime becomes a bottleneck. Then add a per-request transaction context plugin and flip the test helper.
 
 ### Drizzle migration journal vs. hand-edited migrations
 
@@ -75,16 +75,16 @@ Add new items under `Open Items` when work is deliberately postponed. Each item 
 - **Status**: open
 - **Context**: The GET /clubs endpoint filters clubs by user membership when `REQUIRE_AUTH=true`, but this authorization logic is not tested because the test environment has `REQUIRE_AUTH=false`. Testing this would require either setting `REQUIRE_AUTH=true` globally (which would affect other tests) or mocking the environment.
 - **Risk**: Authorization bugs in club membership filtering could go undetected. The `requireClubRole` middleware is tested in isolation, but the route-level filtering logic is not.
-- **Future fix**: Add a way to test permission scenarios without requiring Google OAuth. Options: (a) mock `loadEnv()` to return `REQUIRE_AUTH=true` for specific tests, (b) add a test-specific environment variable override mechanism, (c) add integration tests that use the test DB with auth enabled.
-- **Trigger**: Before enabling `REQUIRE_AUTH=true` in production, or when adding more authorization-dependent routes.
+- **Future fix**: Implement `specs/spec-1-authenticated-club-access.md`: remove `REQUIRE_AUTH` as a protected-route behavior switch, use seeded sessions for route tests, and keep `google-auth-library` mocked only at the OAuth network boundary.
+- **Trigger**: Before doing more club-membership or role-based authorization work.
 
-### TypeScript strict null check errors in tournament-rounds.ts
+### API TypeScript errors after route/service extraction
 
 - **Status**: open
-- **Context**: The `tournament-rounds.ts` route file has multiple TypeScript lint errors about "Object is possibly 'undefined'" and "'match' is possibly 'undefined'". These occur when accessing properties on database query results that might be null/undefined.
-- **Risk**: Runtime errors if the code assumes objects exist when they don't. The errors indicate missing null checks which could cause crashes in production.
-- **Future fix**: Add proper null/undefined checks using optional chaining (`?.`) or explicit null checks before accessing properties. Consider using Drizzle's `.get()` method or adding runtime validation for query results.
-- **Trigger**: Before merging the refactor branch to main, or when adding new match/round operations.
+- **Context**: `pnpm typecheck` currently fails in `@chess-club/api`. Errors include Google OAuth PKCE typing, `request.params` being `unknown` in RBAC helpers, Drizzle date/type mismatches, and many strict-null checks in tournament route/service code.
+- **Risk**: Type errors can hide real runtime crashes, especially where database query results are assumed to exist.
+- **Future fix**: Fix the API type errors directly instead of weakening strictness. Prefer explicit route param types, null checks after database reads, and schema-consistent date values for Drizzle inserts.
+- **Trigger**: Before starting feature work that touches auth, tournaments, rounds, or matches.
 
 ## Resolved Items
 

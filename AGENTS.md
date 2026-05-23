@@ -13,12 +13,12 @@ This is non-negotiable. If you find yourself about to copy a value, a helper, a 
 ### Configuration values
 
 - All rating defaults (initial Elo, Glicko rating/RD/vol, K-factor thresholds, decimals, etc.) live in **`configs/business_config.json`** and are loaded by **`@chess-club/config`** via `loadRatingConfig()` / the `ratingConfig` singleton.
-- API code, the SQLite import script, and any future tool **MUST** import `ratingConfig` from `@chess-club/config`. Do NOT hardcode `1000`, `1200`, `1500`, `350`, `0.06`, K-factor values, etc. anywhere else.
+- API code and any future tool **MUST** import `ratingConfig` from `@chess-club/config`. Do NOT hardcode `1000`, `1200`, `1500`, `350`, `0.06`, K-factor values, etc. anywhere else.
 - DB column defaults are intentionally **not** used for these values — defaults belong in code/config so a JSON change actually takes effect.
 
 ### Helper functions
 
-- If two files need the same helper, extract it to a shared package (`packages/config`, `packages/core`, `packages/db`). Never copy-paste.
+- If two files need the same helper, extract it to an existing shared package (`packages/config`, `packages/db`) or create a clearly owned shared module. Never copy-paste.
 - Re-export from a single canonical module rather than maintaining mirrors.
 - Route handlers are organized in `apps/api/src/routes/` by domain. When adding new routes, follow the existing pattern and register them in `apps/api/src/app.ts`.
 

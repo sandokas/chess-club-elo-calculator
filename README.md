@@ -59,7 +59,6 @@ chess-club/
 │   └── web/          # React web application
 ├── packages/
 │   ├── config/       # Shared environment validation
-│   ├── core/         # Rating logic (Elo, Glicko-2)
 │   └── db/           # Database schema and migrations
 ```
 
@@ -83,7 +82,7 @@ pnpm db:migrate
 
 - `GET /health` - Health check
 - `GET /health/db` - Database health check
-- `GET /clubs` - List clubs
+- `GET /clubs` - List clubs (currently controlled by `REQUIRE_AUTH`; see `specs/spec-1-authenticated-club-access.md` for the planned authenticated-only behavior)
 - `GET /clubs/:clubId/players` - List players (with filtering, sorting, pagination)
 - `GET /clubs/:clubId/tournaments` - List tournaments
 - `GET /clubs/:clubId/leaderboard` - Club leaderboard
@@ -123,12 +122,11 @@ pnpm db:migrate
 
 ### Ratings
 
-- `POST /clubs/:clubId/recompute-ratings` - Full recompute of all player ratings from scratch (excludes byes)
+- `POST /clubs/:clubId/ratings/recompute` - Full recompute of all player ratings from scratch (excludes byes)
 
 See `ARCHITECTURE.md` for full architecture details.
 
 ## Configuration
 
 - Runtime configuration: `.env` (see `.env.example`)
-- Import configuration: `.env.import` (see `.env.import.example`)
 - Business configuration: `configs/business_config.json`

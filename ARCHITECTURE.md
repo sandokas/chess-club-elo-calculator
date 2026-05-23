@@ -1,13 +1,13 @@
 # Chess Club Web Architecture
 
-This repository contains a TypeScript web application for chess club management. The application provides a REST API and React web interface for managing players, tournaments, and ratings (Elo and Glicko-2). A legacy Python CLI application remains in place during migration as a behavioral reference.
+This repository contains a TypeScript web application for chess club management. The application provides a REST API and React web interface for managing clubs, players, tournaments, and ratings (Elo and Glicko-2).
 
 ## Monorepo Layout
 
 - `apps/api` - Fastify API server. Contains rating calculation logic (Elo, Glicko-2) in `src/lib/ratings/`. Route handlers are organized in `src/routes/` by domain.
 - `apps/web` - React + Vite frontend shell. Page components are organized in `src/pages/` by feature.
 - `packages/config` - shared environment validation.
-- `packages/db` - Drizzle schema, PostgreSQL client, migrations, and SQLite import scripts.
+- `packages/db` - Drizzle schema, PostgreSQL client, migrations, and database maintenance scripts.
 
 ## Database Direction
 
@@ -27,7 +27,7 @@ Players are separate from users. A player can exist without a login, and an admi
 
 ## Access Rules
 
-Unauthenticated users can only see safe club metadata. Real names, rosters, tournaments, matches, and leaderboards require authenticated club membership. Mutations are reserved for owner, admin, and organizer roles.
+Current route behavior is partially gated by `REQUIRE_AUTH`, which is a known authorization gap. The intended access model is documented in `specs/spec-1-authenticated-club-access.md`: club-scoped resources require authentication, `GET /clubs` returns only the authenticated user's memberships, and role permissions are cumulative (`member < organizer < admin < owner`).
 
 ## Rating Calculation
 
@@ -38,7 +38,7 @@ Rating calculation logic is centralized in `apps/api/src/lib/ratings/` with Elo 
 - When undoing a match result (setting to null): reverts player ratings to stored "before" values from that match, decrements `games_played`, and restores `last_game_date` to the next-most-recent real match. No recomputation of subsequent matches.
 - Only the player's LAST game can be updated - prevents updating earlier games without rewinding game by game.
 - Only one tournament can be ongoing at a time for a club (status `draft` or `active`).
-- Nuclear option: full club recompute via `POST /clubs/:clubId/recompute-ratings` if the rating algorithm changes.
+- Nuclear option: full club recompute via `POST /clubs/:clubId/ratings/recompute` if the rating algorithm changes.
 
 **Bye Matches (excluded from rating math)**
 Virtual matches for byes are stored with `black_player_id = NULL` and `result = 1`. They count for tournament standings (1 point) but are invisible to rating math:
@@ -78,19 +78,9 @@ Standings are computed on-read (not stored) via `GET /tournaments/:id` and `GET 
 
 Buchholz/SB exclude bye opponents (no opponent points to sum).
 
-## Data Import
+## Data Migration
 
-`packages/db/scripts/import-sqlite.ts` imports existing SQLite databases into PostgreSQL:
-
-- Creates one initial club from environment variables
-- Creates one initial owner/admin user
-- Imports players, tournaments, registrations, and matches
-- Maps legacy `player1_id` to `white_player_id`
-- Maps legacy `player2_id` to `black_player_id`
-- Preserves legacy IDs for traceability
-- Recomputes rating state using the rating logic in apps/api/src/lib/ratings/
-
-Historical colors are inferred from the old player1/player2 columns because the legacy system did not track real white/black colors.
+Historical SQLite import code has been removed after the migration to the Node/PostgreSQL app. Current database maintenance scripts live in `packages/db/scripts/`, including migrations and owner promotion helpers.
 
 ## Runtime
 
@@ -135,7 +125,10 @@ apps/web/src/
 │   └── player/          # Player-specific components
 ├── lib/
 │   ├── utils.ts         # Utility functions (cn for className merging)
-│   └── theme.ts         # Theme utilities (color palettes, localStorage helpers)
+│   ├── theme.ts         # Theme utilities (color palettes, localStorage helpers)
+│   ├── hooks/           # React Query hooks by domain
+│   ├── api.ts           # API helpers
+│   └── http.ts          # API base URL helpers
 ├── hooks/
 │   └── use-polling.ts   # Custom hooks (real-time polling)
 └── App.tsx              # Main app with routing
@@ -171,10 +164,10 @@ apps/web/src/
 - Use proper heading hierarchy
 
 **State Management**
-- Use React hooks (useState, useEffect) for local state
-- Use custom hooks for reusable logic (e.g., usePolling)
+- Use React hooks (useState, useEffect) for local UI state
+- Use TanStack Query for server state via hooks in `src/lib/hooks/`
 - Theme state managed via ThemeProvider context
-- No global state library currently (add if needed)
+- Club and auth state managed via React contexts
 
 ### When to Use What
 
@@ -222,7 +215,6 @@ Use the `usePolling` hook for periodic data fetching:
 
 ### Future Considerations
 
-- Add state management (Zustand, Jotai, or React Query) if needed
-- Add form library (react-hook-form) for complex forms
+- Add a small client-state library (Zustand or Jotai) only if React contexts become unwieldy
 - Add toast notifications for user feedback
 - Consider WebSockets for true real-time updates if polling is insufficient

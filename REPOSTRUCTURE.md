@@ -11,9 +11,9 @@ chess-club/
 │   └── web/                 # React web application
 ├── packages/
 │   ├── config/              # Shared configuration
-│   ├── core/                # Core business logic
 │   └── db/                  # Database schema and migrations
 ├── configs/                 # Business and operational configs
+├── specs/                   # Spec Driven Development plans
 ├── docker-compose.yml       # Docker services orchestration
 ├── pnpm-workspace.yaml       # pnpm workspace configuration
 ├── ARCHITECTURE.md          # Architecture documentation
@@ -53,13 +53,13 @@ chess-club/
 - `lib/validate.ts` - Request body/query validation utilities
 
 **Plugins**: Fastify plugins in `src/plugins/`:
-- `plugins/auth.ts` - Conditional authentication/authorization plugin
+- `plugins/auth.ts` - Authentication/authorization plugin with current `REQUIRE_AUTH` compatibility
 - `plugins/db.ts` - Database connection plugin
 
 **API Endpoints**:
 - `GET /health` - Health check
 - `GET /health/db` - Database health check
-- `GET /clubs` - List clubs
+- `GET /clubs` - List clubs (planned to become authenticated "my clubs" only; see `specs/spec-1-authenticated-club-access.md`)
 - `POST /clubs` - Create club
 - `PATCH /clubs/:clubId` - Update club
 - `DELETE /clubs/:clubId` - Delete club
@@ -85,7 +85,7 @@ chess-club/
 - `PUT /matches/:id/result` - Update match result
 - `GET /players/:id` - Player detail
 - `GET /auth/me` - Current user info
-- `GET /auth/google` - Google OAuth URL
+- `GET /auth/google/start` - Start Google OAuth flow
 - `GET /auth/google/callback` - OAuth callback
 
 **Database Access**: Drizzle ORM via the `db` Fastify decorator (app.db). The db plugin in `src/plugins/db.ts` manages a single pg.Pool per process. Raw SQL is permitted only via `app.db.execute(sql`…`)` with parameterized placeholders.
@@ -113,6 +113,8 @@ chess-club/
 - `pages/tournament-detail.tsx` - Tournament detail (standings, matches)
 - `pages/player-detail.tsx` - Player detail (info, ratings, match history)
 - `pages/players-list.tsx` - Players list page
+- `pages/login.tsx` - Login page
+- `pages/club-search.tsx` - Current club search/join page, planned for redesign under Spec 1
 
 **Component Organization**: Components are organized in `src/components/`:
 - `components/ui/` - shadcn/ui base components
@@ -179,22 +181,21 @@ chess-club/
 - Rating defaults
 
 **Operational Config** (`configs/operational_config.json`):
-- Database path
-- Runtime settings
+- Reserved operational settings
 
 ## Docker Services
 
-**Postgres**: PostgreSQL 16-alpine
+**Postgres**: PostgreSQL 18-alpine
 - Port: 5432
 - Database: chess_club
 - User: chess_club
 
-**API**: Node 22-alpine
+**API**: Node 25-alpine
 - Port: 4000
 - Command: Migrate DB + start dev server
 - Depends on: postgres
 
-**Web**: Node 22-alpine
+**Web**: Node 25-alpine
 - Port: 5173
 - Command: Start dev server with Vite
 - Depends on: api

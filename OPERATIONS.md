@@ -63,8 +63,10 @@ This document outlines operational rules and conventions for the Chess Club proj
 > Rating logic (Elo, Glicko-2) lives in `apps/api/src/lib/ratings/`. Defaults come from `@chess-club/config` (see `AGENTS.md`).
 
 **Database Access**:
-- API uses direct PostgreSQL queries via connection pooling
-- Schema defined in `packages/db/drizzle/`
+- API uses Drizzle ORM via the Fastify `app.db` decorator
+- The Fastify DB plugin owns the single pg.Pool lifecycle per process
+- Schema is defined in `packages/db/src/schema.ts`
+- Generated migrations live in `packages/db/drizzle/`
 
 ## Development Workflow
 

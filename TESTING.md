@@ -42,10 +42,10 @@ The global `beforeEach` in `apps/api/test/setup.ts` calls `truncateAll(adminPool
 
 Transactional rollback (wrap each test in `BEGIN ... ROLLBACK`) is faster (~1 ms per test) and is the long-term target. Two reasons we're not there yet:
 
-1. **Mixed decorators.** Routes still alternate between `app.pg` (raw `pg.Pool`) and `app.db` (Drizzle). Threading a single transaction client through Fastify's request lifecycle requires per-request context propagation and breaks for pool-grabbing code paths. TRUNCATE works orthogonally to both.
+1. **Request-scoped transactions are not wired yet.** Routes use `app.db`, but the app does not yet provide a per-request transaction context that every Drizzle query automatically joins. TRUNCATE keeps isolation independent of request lifecycle plumbing.
 2. **Simplicity.** TRUNCATE is one line and has no edge cases around nested transactions, savepoints, deferred constraints, or connection pinning.
 
-Once routes are 100% on `app.db`, we'll migrate to transactional rollback. See `TECH_DEBT.md`.
+If test runtime becomes a bottleneck, migrate to transactional rollback by adding a request-scoped transaction context. See `TECH_DEBT.md`.
 
 ### Why not Testcontainers?
 
