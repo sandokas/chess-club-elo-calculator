@@ -70,23 +70,19 @@ Add new items under `Open Items` when work is deliberately postponed. Each item 
 - **Future fix**: Investigate one of: (a) `tsx watch --poll` with a tuned polling interval, (b) `nodemon` with `--legacy-watch`, (c) named-volume-based source sync instead of bind mount, or (d) running the API directly on the host outside Docker in dev.
 - **Trigger**: When backend iteration speed becomes a bottleneck, or when contributors on non-Windows hosts want HMR.
 
-### Permission testing without Google OAuth
+## Resolved Items
 
-- **Status**: open
-- **Context**: The GET /clubs endpoint filters clubs by user membership when `REQUIRE_AUTH=true`, but this authorization logic is not tested because the test environment has `REQUIRE_AUTH=false`. Testing this would require either setting `REQUIRE_AUTH=true` globally (which would affect other tests) or mocking the environment.
-- **Risk**: Authorization bugs in club membership filtering could go undetected. The `requireClubRole` middleware is tested in isolation, but the route-level filtering logic is not.
-- **Future fix**: Implement `specs/spec-1-authenticated-club-access.md`: remove `REQUIRE_AUTH` as a protected-route behavior switch, use seeded sessions for route tests, and keep `google-auth-library` mocked only at the OAuth network boundary.
-- **Trigger**: Before doing more club-membership or role-based authorization work.
+### Authenticated club access and route permission tests
+
+- **Status**: resolved
+- **Date**: May 2026
+- **Description**: Implemented `specs/spec-1-authenticated-club-access.md`. Protected club-scoped routes now require authentication unconditionally, `GET /clubs` returns only the authenticated user's memberships, role checks use a centralized hierarchy helper, and route tests use seeded sessions with the production `sid` cookie. `google-auth-library` remains mocked only at the OAuth network boundary.
 
 ### API TypeScript errors after route/service extraction
 
-- **Status**: open
-- **Context**: `pnpm typecheck` currently fails in `@chess-club/api`. Errors include Google OAuth PKCE typing, `request.params` being `unknown` in RBAC helpers, Drizzle date/type mismatches, and many strict-null checks in tournament route/service code.
-- **Risk**: Type errors can hide real runtime crashes, especially where database query results are assumed to exist.
-- **Future fix**: Fix the API type errors directly instead of weakening strictness. Prefer explicit route param types, null checks after database reads, and schema-consistent date values for Drizzle inserts.
-- **Trigger**: Before starting feature work that touches auth, tournaments, rounds, or matches.
-
-## Resolved Items
+- **Status**: resolved
+- **Date**: May 2026
+- **Description**: Restored `@chess-club/api` typecheck by fixing Google OAuth PKCE typing, schema-consistent Drizzle date inserts, explicit database row invariants, and duplicated match-result update logic between route and service code.
 
 ### Python CLI and documentation cleanup
 

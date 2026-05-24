@@ -1,5 +1,11 @@
 # Spec 1: Authenticated Club Access And Role-Scoped Membership
 
+## Implementation Status
+
+Implemented in May 2026.
+
+The implementation enforces authenticated access for club-scoped API routes, makes `GET /clubs` return only the authenticated user's memberships, centralizes role hierarchy checks, preserves private join-by-club-name requests, and updates API tests to use seeded sessions with the production `sid` cookie. The Google SDK is mocked only at the OAuth network boundary.
+
 ## Context
 
 The app is designed around authenticated users managing chess clubs. A user can belong to multiple clubs, and a club can have multiple users with different roles. Today, `GET /clubs` can return all clubs when the requester is unauthenticated because route behavior depends on `REQUIRE_AUTH`. That flag mainly exists to make tests pass without proper authenticated integration flows, but it creates an authorization gap.
