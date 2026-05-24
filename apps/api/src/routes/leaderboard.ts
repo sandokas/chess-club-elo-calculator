@@ -1,21 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { sql } from "drizzle-orm";
-import { requireAuth, requireClubRole, type ClubRole } from "../lib/auth/rbac.js";
 
 interface ClubParams {
   clubId: string;
 }
 
 export async function registerLeaderboardRoutes(app: FastifyInstance) {
-  const REQUIRE_AUTH = process.env.REQUIRE_AUTH === "true";
-
-  const conditionalRequireAuth = REQUIRE_AUTH ? requireAuth : async () => {};
-  const conditionalRequireClubRole = (roles: ClubRole[]) => REQUIRE_AUTH
-    ? ((request: any, reply: any) => requireClubRole(request, reply, roles))
-    : async () => {};
-
   // Leaderboard route
-  app.get<{ Params: ClubParams; Querystring: { activeOnly?: string; limit?: string } }>("/clubs/:clubId/leaderboard", { preHandler: [conditionalRequireAuth, conditionalRequireClubRole(["owner", "admin", "organizer", "member"])] }, async (request) => {
+  app.get<{ Params: ClubParams; Querystring: { activeOnly?: string; limit?: string } }>("/clubs/:clubId/leaderboard", { preHandler: [app.auth.requireClubRole("member")] }, async (request) => {
     const activeOnly = request.query.activeOnly !== 'false';
     const limit = Math.min(parseInt(request.query.limit || '10', 10), 100);
     const result = await app.db.execute(sql`

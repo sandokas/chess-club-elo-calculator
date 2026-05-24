@@ -22,10 +22,11 @@ describe("auth plugin", () => {
     expect(typeof app.auth.requireTournamentClubRole).toBe("function");
     expect(typeof app.auth.requirePlayerClubRole).toBe("function");
     expect(typeof app.auth.requireMatchClubRole).toBe("function");
+    expect(typeof app.auth.requireRoundClubRole).toBe("function");
   });
 
   it("requireAuth is a function that can be called", async () => {
-    const mockRequest = {} as any;
+    const mockRequest = { user: { id: "user-1" } } as any;
     const mockReply = {} as any;
     
     // Should not throw when called
@@ -33,22 +34,27 @@ describe("auth plugin", () => {
   });
 
   it("requireClubRole returns a function", () => {
-    const handler = app.auth.requireClubRole(["owner", "admin"]);
+    const handler = app.auth.requireClubRole("admin");
     expect(typeof handler).toBe("function");
   });
 
   it("requireTournamentClubRole returns a function", () => {
-    const handler = app.auth.requireTournamentClubRole(["owner", "admin"]);
+    const handler = app.auth.requireTournamentClubRole("admin");
     expect(typeof handler).toBe("function");
   });
 
   it("requirePlayerClubRole returns a function", () => {
-    const handler = app.auth.requirePlayerClubRole(["owner", "admin"]);
+    const handler = app.auth.requirePlayerClubRole("admin");
     expect(typeof handler).toBe("function");
   });
 
   it("requireMatchClubRole returns a function", () => {
-    const handler = app.auth.requireMatchClubRole(["owner", "admin"]);
+    const handler = app.auth.requireMatchClubRole("admin");
+    expect(typeof handler).toBe("function");
+  });
+
+  it("requireRoundClubRole returns a function", () => {
+    const handler = app.auth.requireRoundClubRole("admin");
     expect(typeof handler).toBe("function");
   });
 });

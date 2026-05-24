@@ -5,7 +5,10 @@ import { createTestApp, type TestApp } from "../helpers/app.js";
 import {
   seedClub,
   seedAuthenticatedOwner,
-  seedPlayer
+  seedMembership,
+  seedPlayer,
+  seedSession,
+  seedUser
 } from "../helpers/seed.js";
 
 describe("club routes", () => {
@@ -23,29 +26,47 @@ describe("club routes", () => {
   // GET /clubs
   // -------------------------------------------------------------------------
   describe("GET /clubs", () => {
-    it("lists all clubs when auth is not required", async () => {
-      await seedClub(testApp.db, { name: "Club A" });
-      await seedClub(testApp.db, { name: "Club B" });
-
+    it("returns 401 without authentication", async () => {
       const response = await testApp.app.inject({
         method: "GET",
         url: "/clubs"
       });
 
-      expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body.clubs).toHaveLength(2);
+      expect(response.statusCode).toBe(401);
     });
 
-    it("returns empty list when no clubs exist", async () => {
+    it("returns empty list when authenticated user has no memberships", async () => {
+      const user = await seedUser(testApp.db);
+      const { token } = await seedSession(testApp.db, { userId: user.id });
+
       const response = await testApp.app.inject({
         method: "GET",
-        url: "/clubs"
+        url: "/clubs",
+        cookies: { sid: token }
       });
 
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.clubs).toHaveLength(0);
+    });
+
+    it("lists only clubs where the authenticated user is a member", async () => {
+      const user = await seedUser(testApp.db);
+      const { token } = await seedSession(testApp.db, { userId: user.id });
+      const clubA = await seedClub(testApp.db, { name: "Club A" });
+      await seedMembership(testApp.db, { userId: user.id, clubId: clubA.id, role: "member" });
+      await seedClub(testApp.db, { name: "Club B" });
+
+      const response = await testApp.app.inject({
+        method: "GET",
+        url: "/clubs",
+        cookies: { sid: token }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().clubs).toEqual([
+        expect.objectContaining({ id: clubA.id, name: "Club A" })
+      ]);
     });
   });
 
@@ -54,13 +75,13 @@ describe("club routes", () => {
   // -------------------------------------------------------------------------
   describe("POST /clubs", () => {
     it("creates a club with slug generation", async () => {
-      const { session } = await seedAuthenticatedOwner(testApp.db);
+      const { user, session } = await seedAuthenticatedOwner(testApp.db);
 
       const response = await testApp.app.inject({
         method: "POST",
         url: "/clubs",
         payload: { name: "Test Club", description: "A test club", city: "Berlin", country: "Germany" },
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(201);
@@ -73,6 +94,23 @@ describe("club routes", () => {
         country: "Germany"
       });
       expect(body.club.id).toBeDefined();
+
+      const memberships = await testApp.db
+        .select()
+        .from(clubMemberships)
+        .where(eq(clubMemberships.clubId, body.club.id));
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0]).toMatchObject({ userId: user.id, role: "owner" });
+    });
+
+    it("returns 401 without authentication", async () => {
+      const response = await testApp.app.inject({
+        method: "POST",
+        url: "/clubs",
+        payload: { name: "Test Club" }
+      });
+
+      expect(response.statusCode).toBe(401);
     });
 
     it("returns 400 for empty name", async () => {
@@ -82,7 +120,7 @@ describe("club routes", () => {
         method: "POST",
         url: "/clubs",
         payload: { name: "   " },
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -100,7 +138,7 @@ describe("club routes", () => {
         method: "POST",
         url: "/clubs",
         payload: { name: "Test Club" },
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(409);
@@ -122,7 +160,7 @@ describe("club routes", () => {
         method: "PATCH",
         url: `/clubs/${club.id}`,
         payload: { name: "Updated Name" },
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -137,7 +175,7 @@ describe("club routes", () => {
         method: "PATCH",
         url: `/clubs/${club.id}`,
         payload: { description: "New description" },
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -152,7 +190,7 @@ describe("club routes", () => {
         method: "PATCH",
         url: `/clubs/${club.id}`,
         payload: {},
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -169,7 +207,7 @@ describe("club routes", () => {
         method: "PATCH",
         url: "/clubs/00000000-0000-0000-0000-000000000000",
         payload: { name: "Test" },
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(404);
@@ -190,7 +228,7 @@ describe("club routes", () => {
       const response = await testApp.app.inject({
         method: "DELETE",
         url: `/clubs/${club.id}`,
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(204);
@@ -209,7 +247,7 @@ describe("club routes", () => {
       const response = await testApp.app.inject({
         method: "DELETE",
         url: "/clubs/00000000-0000-0000-0000-000000000000",
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(404);
@@ -230,7 +268,7 @@ describe("club routes", () => {
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/ratings/recompute`,
-        headers: { cookie: `session=${session.token}` }
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);

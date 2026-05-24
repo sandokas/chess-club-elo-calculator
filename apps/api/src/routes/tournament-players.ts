@@ -5,20 +5,16 @@ import { addPlayerToTournamentSchema, createPlayerInTournamentSchema, updateTour
 import { parseBody } from "../lib/validate.js";
 import { createNotFoundError, createValidationError } from "../lib/errors.js";
 import { ratingConfig } from "@chess-club/config";
-import { requireAuth, requireTournamentClubRole, type ClubRole } from "../lib/auth/rbac.js";
+
+const todayAsDateString = () => new Date().toISOString().slice(0, 10);
 
 type TournamentParams = {
   id: string;
 };
 
 export async function registerTournamentPlayerRoutes(app: FastifyInstance) {
-  const REQUIRE_AUTH = process.env.REQUIRE_AUTH === "true";
-
-  const conditionalRequireAuth = REQUIRE_AUTH ? requireAuth : async () => {};
-  const conditionalRequireTournamentClubRole = (roles: ClubRole[]) => REQUIRE_AUTH ? ((request: any, reply: any) => requireTournamentClubRole(request, reply, roles)) : async () => {};
-
   // Add existing player to tournament
-  app.post<{ Params: TournamentParams; Body: { playerId: string } }>("/tournaments/:id/players", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer"])] }, async (request, reply) => {
+  app.post<{ Params: TournamentParams; Body: { playerId: string } }>("/tournaments/:id/players", { preHandler: [app.auth.requireTournamentClubRole("organizer")] }, async (request, reply) => {
     const body = parseBody(addPlayerToTournamentSchema, request.body);
     const { playerId } = body;
     const tournamentId = request.params.id;
@@ -110,7 +106,7 @@ export async function registerTournamentPlayerRoutes(app: FastifyInstance) {
           whitePlayerId: (byeResult.rows[0] as any).player_id,
           blackPlayerId: playerId,
           boardNumber: nextBoardNumber,
-          playedOn: new Date()
+          playedOn: todayAsDateString()
         });
       }
     }
@@ -119,7 +115,7 @@ export async function registerTournamentPlayerRoutes(app: FastifyInstance) {
   });
 
   // Create new player and add to tournament
-  app.post<{ Params: TournamentParams; Body: { displayName: string } }>("/tournaments/:id/players/new", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer"])] }, async (request, reply) => {
+  app.post<{ Params: TournamentParams; Body: { displayName: string } }>("/tournaments/:id/players/new", { preHandler: [app.auth.requireTournamentClubRole("organizer")] }, async (request, reply) => {
     const body = parseBody(createPlayerInTournamentSchema, request.body);
     const { displayName } = body;
     const tournamentId = request.params.id;
@@ -211,7 +207,7 @@ export async function registerTournamentPlayerRoutes(app: FastifyInstance) {
           whitePlayerId: (byeResult.rows[0] as any).player_id,
           blackPlayerId: playerId,
           boardNumber: nextBoardNumber,
-          playedOn: new Date()
+          playedOn: todayAsDateString()
         });
       }
     }
@@ -220,7 +216,7 @@ export async function registerTournamentPlayerRoutes(app: FastifyInstance) {
   });
 
   // Remove player from tournament
-  app.delete<{ Params: TournamentParams & { playerId: string } }>("/tournaments/:id/players/:playerId", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer"])] }, async (request, reply) => {
+  app.delete<{ Params: TournamentParams & { playerId: string } }>("/tournaments/:id/players/:playerId", { preHandler: [app.auth.requireTournamentClubRole("organizer")] }, async (request, reply) => {
     const { id: tournamentId, playerId } = request.params;
 
     // Check tournament exists and is in draft status
@@ -246,7 +242,7 @@ export async function registerTournamentPlayerRoutes(app: FastifyInstance) {
   });
 
   // Mark player as dropout
-  app.put<{ Params: TournamentParams & { playerId: string }; Body: { droppedOutRound: number } }>("/tournaments/:id/players/:playerId/dropout", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer"])] }, async (request, reply) => {
+  app.put<{ Params: TournamentParams & { playerId: string }; Body: { droppedOutRound: number } }>("/tournaments/:id/players/:playerId/dropout", { preHandler: [app.auth.requireTournamentClubRole("organizer")] }, async (request, reply) => {
     const body = parseBody(updateTournamentPlayerSchema, request.body);
     const { droppedOutRound } = body;
     const { id: tournamentId, playerId } = request.params;
@@ -281,7 +277,7 @@ export async function registerTournamentPlayerRoutes(app: FastifyInstance) {
   });
 
   // List tournament players
-  app.get<{ Params: TournamentParams }>("/tournaments/:id/players", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
+  app.get<{ Params: TournamentParams }>("/tournaments/:id/players", { preHandler: [app.auth.requireTournamentClubRole("member")] }, async (request, reply) => {
     const result = await app.db.execute(sql`
       SELECT
         tp.player_id AS "playerId",

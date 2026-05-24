@@ -66,6 +66,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
 
   app.post<{ Params: ClubParams; Body: CreatePlayerBody }>(
     "/clubs/:clubId/players",
+    { preHandler: [app.auth.requireClubRole("owner")] },
     async (request, reply) => {
       const db = app.db;
       const { displayName } = request.body;
@@ -90,6 +91,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
 
   app.delete<{ Params: ClubPlayerParams }>(
     "/clubs/:clubId/players/:playerId",
+    { preHandler: [app.auth.requireClubRole("owner")] },
     async (request, reply) => {
       const db = app.db;
 
@@ -112,6 +114,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
 
   app.get<{ Params: ClubParams; Querystring: PlayersQuerystring }>(
     "/clubs/:clubId/players",
+    { preHandler: [app.auth.requireClubRole("member")] },
     async (request, reply) => {
       const db = app.db;
 
@@ -130,7 +133,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
     }
   );
 
-  app.get<{ Params: PlayerParams }>("/players/:id", async (request) => {
+  app.get<{ Params: PlayerParams }>("/players/:id", { preHandler: [app.auth.requirePlayerClubRole("member")] }, async (request) => {
     const db = app.db;
 
     try {
@@ -145,6 +148,7 @@ export async function registerPlayerRoutes(app: FastifyInstance): Promise<void> 
 
   app.put<{ Params: PlayerParams; Body: UpdatePlayerBody }>(
     "/players/:id",
+    { preHandler: [app.auth.requirePlayerClubRole("owner")] },
     async (request, reply) => {
       const db = app.db;
       const { displayName, active } = request.body;

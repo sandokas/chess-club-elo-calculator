@@ -1,7 +1,7 @@
 import type { Db } from "@chess-club/db";
 import { users, authIdentities, clubMemberships } from "@chess-club/db";
 import { eq, and, sql } from "drizzle-orm";
-import { OAuth2Client } from "google-auth-library";
+import { CodeChallengeMethod, OAuth2Client } from "google-auth-library";
 import { loadEnv } from "@chess-club/config";
 import { randomBytes } from "node:crypto";
 
@@ -44,7 +44,7 @@ export function getGoogleAuthUrl(state: string, codeChallenge: string): string {
     scope: ["openid", "email", "profile"],
     state,
     code_challenge: codeChallenge,
-    code_challenge_method: "S256",
+    code_challenge_method: CodeChallengeMethod.S256,
     prompt: "consent"
   });
 }

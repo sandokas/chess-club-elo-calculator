@@ -6,7 +6,9 @@ import cookie from "@fastify/cookie";
 import dbPlugin from "../../../src/plugins/db.js";
 import {
   attachUser,
+  clubRoleRank,
   getMembership,
+  hasClubRoleAtLeast,
   requireAuth,
   requireClubRole,
   requireTournamentClubRole,
@@ -51,6 +53,24 @@ describe("rbac", () => {
       const club = await seedClub(db);
 
       expect(await getMembership(db, user.id, club.id)).toBeNull();
+    });
+  });
+
+  describe("role hierarchy", () => {
+    it("orders roles from member through owner", () => {
+      expect(clubRoleRank).toEqual({
+        member: 0,
+        organizer: 1,
+        admin: 2,
+        owner: 3
+      });
+    });
+
+    it("treats roles cumulatively", () => {
+      expect(hasClubRoleAtLeast("organizer", "member")).toBe(true);
+      expect(hasClubRoleAtLeast("admin", "organizer")).toBe(true);
+      expect(hasClubRoleAtLeast("member", "organizer")).toBe(false);
+      expect(hasClubRoleAtLeast("admin", "owner")).toBe(false);
     });
   });
 
@@ -136,11 +156,11 @@ describe("rbac", () => {
   });
 
   describe("requireClubRole", () => {
-    async function setupRoute(roles: Array<"owner" | "admin" | "organizer" | "member">) {
+    async function setupRoute(role: "owner" | "admin" | "organizer" | "member") {
       const app = await buildGuardApp();
       app.get<{ Params: { clubId: string } }>(
         "/clubs/:clubId/protected",
-        { preHandler: [(req, reply) => requireClubRole(req, reply, roles)] },
+        { preHandler: [(req, reply) => requireClubRole(req, reply, role)] },
         async () => ({ ok: true })
       );
       await app.ready();
@@ -148,7 +168,7 @@ describe("rbac", () => {
     }
 
     it("returns 401 when unauthenticated", async () => {
-      const app = await setupRoute(["owner"]);
+      const app = await setupRoute("owner");
       const res = await app.inject({ method: "GET", url: "/clubs/any/protected" });
       expect(res.statusCode).toBe(401);
       await app.close();
@@ -159,7 +179,7 @@ describe("rbac", () => {
       const club = await seedClub(db);
       // Note: no membership seeded
       const { token } = await seedSession(db, { userId: user.id });
-      const app = await setupRoute(["owner"]);
+      const app = await setupRoute("owner");
 
       const res = await app.inject({
         method: "GET",
@@ -171,12 +191,12 @@ describe("rbac", () => {
       await app.close();
     });
 
-    it("returns 403 when the user's role is not in the allowed list", async () => {
+    it("returns 403 when the user's role is below the required role", async () => {
       const user = await seedUser(db);
       const club = await seedClub(db);
       await seedMembership(db, { userId: user.id, clubId: club.id, role: "member" });
       const { token } = await seedSession(db, { userId: user.id });
-      const app = await setupRoute(["owner", "admin"]);
+      const app = await setupRoute("admin");
 
       const res = await app.inject({
         method: "GET",
@@ -188,9 +208,9 @@ describe("rbac", () => {
       await app.close();
     });
 
-    it("passes through when the user has an allowed role", async () => {
+    it("passes through when the user has the required role", async () => {
       const { club, session } = await seedAuthenticatedOwner(db);
-      const app = await setupRoute(["owner", "admin"]);
+      const app = await setupRoute("admin");
 
       const res = await app.inject({
         method: "GET",
@@ -203,11 +223,11 @@ describe("rbac", () => {
   });
 
   describe("requireTournamentClubRole", () => {
-    async function setupRoute(roles: Array<"owner" | "admin" | "organizer" | "member">) {
+    async function setupRoute(role: "owner" | "admin" | "organizer" | "member") {
       const app = await buildGuardApp();
       app.get<{ Params: { id: string } }>(
         "/tournaments/:id/protected",
-        { preHandler: [(req, reply) => requireTournamentClubRole(req, reply, roles)] },
+        { preHandler: [(req, reply) => requireTournamentClubRole(req, reply, role)] },
         async () => ({ ok: true })
       );
       await app.ready();
@@ -216,7 +236,7 @@ describe("rbac", () => {
 
     it("returns 404 when the tournament does not exist", async () => {
       const { session } = await seedAuthenticatedOwner(db);
-      const app = await setupRoute(["owner"]);
+      const app = await setupRoute("owner");
 
       const res = await app.inject({
         method: "GET",
@@ -233,7 +253,7 @@ describe("rbac", () => {
       const club = await seedClub(db);
       const t = await seedTournament(db, { clubId: club.id });
       const { token } = await seedSession(db, { userId: stranger.id });
-      const app = await setupRoute(["owner"]);
+      const app = await setupRoute("owner");
 
       const res = await app.inject({
         method: "GET",
@@ -247,7 +267,7 @@ describe("rbac", () => {
     it("passes through for a club member with an allowed role", async () => {
       const { club, session } = await seedAuthenticatedOwner(db);
       const t = await seedTournament(db, { clubId: club.id });
-      const app = await setupRoute(["owner", "admin"]);
+      const app = await setupRoute("admin");
 
       const res = await app.inject({
         method: "GET",
@@ -260,11 +280,11 @@ describe("rbac", () => {
   });
 
   describe("requirePlayerClubRole", () => {
-    async function setupRoute(roles: Array<"owner" | "admin" | "organizer" | "member">) {
+    async function setupRoute(role: "owner" | "admin" | "organizer" | "member") {
       const app = await buildGuardApp();
       app.get<{ Params: { id: string } }>(
         "/players/:id/protected",
-        { preHandler: [(req, reply) => requirePlayerClubRole(req, reply, roles)] },
+        { preHandler: [(req, reply) => requirePlayerClubRole(req, reply, role)] },
         async () => ({ ok: true })
       );
       await app.ready();
@@ -273,7 +293,7 @@ describe("rbac", () => {
 
     it("returns 404 when the player does not exist", async () => {
       const { session } = await seedAuthenticatedOwner(db);
-      const app = await setupRoute(["owner"]);
+      const app = await setupRoute("owner");
 
       const res = await app.inject({
         method: "GET",
@@ -290,7 +310,7 @@ describe("rbac", () => {
       const club = await seedClub(db);
       const player = await seedPlayer(db, { clubId: club.id });
       const { token } = await seedSession(db, { userId: stranger.id });
-      const app = await setupRoute(["owner"]);
+      const app = await setupRoute("owner");
 
       const res = await app.inject({
         method: "GET",
@@ -304,7 +324,7 @@ describe("rbac", () => {
     it("passes through for a club member with an allowed role", async () => {
       const { club, session } = await seedAuthenticatedOwner(db);
       const player = await seedPlayer(db, { clubId: club.id });
-      const app = await setupRoute(["owner", "admin"]);
+      const app = await setupRoute("admin");
 
       const res = await app.inject({
         method: "GET",

@@ -3,8 +3,11 @@ import { ThemeSwitcher } from "./theme-switcher.js";
 import { ColorPaletteSwitcher } from "./color-palette-switcher.js";
 import { ClubSelector } from "@/components/club/club-selector.js";
 import { UserMenu } from "@/components/auth/user-menu.js";
+import { useAuth } from "@/contexts/auth-context.js";
 
 export function Header() {
+  const { isAuthenticated } = useAuth();
+
   return (
     <header className="border-b bg-card">
       <div className="flex h-14 sm:h-16 items-center justify-between px-4 sm:px-6">
@@ -15,7 +18,7 @@ export function Header() {
           <h1 className="text-base sm:text-xl font-bold">Chess Club Manager</h1>
         </div>
         <div className="flex items-center gap-1">
-          <ClubSelector />
+          {isAuthenticated ? <ClubSelector /> : null}
           <ColorPaletteSwitcher />
           <ThemeSwitcher />
           <UserMenu />

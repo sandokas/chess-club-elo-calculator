@@ -1,141 +1,98 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.js";
 import { Button } from "../components/ui/button.js";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.js";
 import { Input } from "../components/ui/input.js";
-import { Badge } from "../components/ui/badge.js";
-import { JoinClubDialog } from "../components/club/join-club-dialog.js";
+import { Label } from "../components/ui/label.js";
+import { Textarea } from "../components/ui/textarea.js";
 import { useAuth } from "../contexts/auth-context.js";
-
-interface Club {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  city: string | null;
-  country: string | null;
-}
+import { useToast } from "../hooks/use-toast";
+import { useCreateJoinRequestByClubName } from "../lib/hooks/use-invites.js";
 
 export function ClubSearchPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [clubs, setClubs] = useState<Club[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [selectedClub, setSelectedClub] = useState<{ id: string; name: string } | null>(null);
-  const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+  const { toast } = useToast();
+  const [clubName, setClubName] = useState("");
+  const [message, setMessage] = useState("");
+  const createJoinRequest = useCreateJoinRequestByClubName();
 
-  useEffect(() => {
-    if (!user) return;
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
 
-    const fetchClubs = async () => {
-      try {
-        const response = await fetch("/api/clubs", { credentials: "include" });
-        if (response.ok) {
-          const data = await response.json();
-          setClubs(data.clubs || []);
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+
+    createJoinRequest.mutate(
+      {
+        clubName,
+        message: message.trim() || undefined
+      },
+      {
+        onSuccess: () => {
+          toast({
+            title: "Join request submitted",
+            description: "If that club exists, an admin will be able to review your request."
+          });
+          setClubName("");
+          setMessage("");
+        },
+        onError: (error) => {
+          toast({
+            title: "Error",
+            description: error instanceof Error ? error.message : "Failed to submit join request",
+            variant: "destructive"
+          });
         }
-      } catch (error) {
-        console.error("Failed to fetch clubs:", error);
-      } finally {
-        setIsLoading(false);
       }
-    };
-
-    fetchClubs();
-  }, [user]);
-
-  const filteredClubs = clubs.filter(club => {
-    const query = searchQuery.toLowerCase();
-    return (
-      club.name.toLowerCase().includes(query) ||
-      (club.description && club.description.toLowerCase().includes(query)) ||
-      (club.city && club.city.toLowerCase().includes(query)) ||
-      (club.country && club.country.toLowerCase().includes(query))
     );
-  });
-
-  const handleJoinClick = (clubId: string, clubName: string) => {
-    setSelectedClub({ id: clubId, name: clubName });
-    setJoinDialogOpen(true);
   };
-
-  const handleClubClick = (clubId: string) => {
-    navigate(`/clubs/${clubId}`);
-  };
-
-  if (isLoading) {
-    return <div>Loading...</div>;
-  }
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Find a Club</h1>
-        <p className="text-muted-foreground">Search for chess clubs to join</p>
+        <h1 className="text-3xl font-bold">Join a Club</h1>
+        <p className="text-muted-foreground">Request access using the club name provided by an organizer.</p>
       </div>
 
-      <Input
-        placeholder="Search clubs by name, description, city, or country..."
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
-        className="max-w-md"
-      />
+      <Card>
+        <CardHeader>
+          <CardTitle>Club request</CardTitle>
+          <CardDescription>Club names are not listed publicly.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="club-name">Club name</Label>
+              <Input
+                id="club-name"
+                value={clubName}
+                onChange={(event) => setClubName(event.target.value)}
+                placeholder="Exact club name"
+                autoComplete="off"
+                required
+              />
+            </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {filteredClubs.map((club) => {
-          const isMember = user?.memberships.some(m => m.clubId === club.id);
-          return (
-            <Card key={club.id} className="flex flex-col">
-              <CardHeader>
-                <CardTitle>{club.name}</CardTitle>
-                <CardDescription>
-                  {club.city && club.country ? `${club.city}, ${club.country}` : club.city || club.country || "Location not specified"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1 flex flex-col gap-4">
-                <p className="text-sm text-muted-foreground line-clamp-3">
-                  {club.description || "No description available."}
-                </p>
-                <div className="flex items-center gap-2 mt-auto">
-                  {isMember ? (
-                    <Badge variant="outline">Member</Badge>
-                  ) : (
-                    <Button
-                      size="sm"
-                      onClick={() => handleJoinClick(club.id, club.name)}
-                    >
-                      Join Request
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleClubClick(club.id)}
-                  >
-                    View
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+            <div className="space-y-2">
+              <Label htmlFor="join-message">Message (optional)</Label>
+              <Textarea
+                id="join-message"
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder="Tell the admins who you are"
+                rows={4}
+              />
+            </div>
 
-      {filteredClubs.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-muted-foreground">No clubs found matching your search.</p>
-        </div>
-      )}
-
-      {selectedClub && (
-        <JoinClubDialog
-          open={joinDialogOpen}
-          onOpenChange={setJoinDialogOpen}
-          clubId={selectedClub.id}
-          clubName={selectedClub.name}
-        />
-      )}
+            <Button type="submit" disabled={createJoinRequest.isPending || !clubName.trim()}>
+              {createJoinRequest.isPending ? "Submitting..." : "Submit Request"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

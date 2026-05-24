@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { players, tournaments } from "@chess-club/db";
 import { createTestApp, type TestApp } from "./helpers/app.js";
-import { seedClub, seedPlayer, seedTournament } from "./helpers/seed.js";
+import { seedAuthenticatedOwner, seedPlayer, seedTournament } from "./helpers/seed.js";
 
 describe("PUT endpoints", () => {
   let testApp: TestApp;
@@ -17,19 +17,24 @@ describe("PUT endpoints", () => {
 
   describe("PUT /players/:id", () => {
     it("returns 404 for a non-existent player", async () => {
+      const { session } = await seedAuthenticatedOwner(testApp.db);
       const response = await testApp.app.inject({
         method: "PUT",
         url: "/players/00000000-0000-0000-0000-000000000000",
-        payload: { displayName: "Test Player Updated" }
+        payload: { displayName: "Test Player Updated" },
+        cookies: { sid: session.token }
       });
       expect(response.statusCode).toBe(404);
     });
 
     it("returns 400 when displayName is empty", async () => {
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
+      const player = await seedPlayer(testApp.db, { clubId: club.id });
       const response = await testApp.app.inject({
         method: "PUT",
-        url: "/players/00000000-0000-0000-0000-000000000000",
-        payload: { displayName: "" }
+        url: `/players/${player.id}`,
+        payload: { displayName: "" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -37,13 +42,14 @@ describe("PUT endpoints", () => {
     });
 
     it("updates the player and returns the persisted row", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Old Name" });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/players/${player.id}`,
-        payload: { displayName: "New Name" }
+        payload: { displayName: "New Name" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -59,13 +65,14 @@ describe("PUT endpoints", () => {
     });
 
     it("can toggle the active flag", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club.id, active: true });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/players/${player.id}`,
-        payload: { active: false }
+        payload: { active: false },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -76,19 +83,24 @@ describe("PUT endpoints", () => {
 
   describe("PUT /tournaments/:id", () => {
     it("returns 404 for a non-existent tournament", async () => {
+      const { session } = await seedAuthenticatedOwner(testApp.db);
       const response = await testApp.app.inject({
         method: "PUT",
         url: "/tournaments/00000000-0000-0000-0000-000000000000",
-        payload: { status: "completed" }
+        payload: { status: "completed" },
+        cookies: { sid: session.token }
       });
       expect(response.statusCode).toBe(404);
     });
 
     it("returns 400 for an invalid status enum", async () => {
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
+      const t = await seedTournament(testApp.db, { clubId: club.id });
       const response = await testApp.app.inject({
         method: "PUT",
-        url: "/tournaments/00000000-0000-0000-0000-000000000000",
-        payload: { status: "invalid" }
+        url: `/tournaments/${t.id}`,
+        payload: { status: "invalid" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -96,13 +108,14 @@ describe("PUT endpoints", () => {
     });
 
     it("updates a draft tournament's name", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const t = await seedTournament(testApp.db, { clubId: club.id, name: "Original" });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/tournaments/${t.id}`,
-        payload: { name: "Renamed" }
+        payload: { name: "Renamed" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);

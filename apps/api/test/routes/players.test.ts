@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq, and } from "drizzle-orm";
-import { players, playerRatings, matches, clubs } from "@chess-club/db";
+import { players, playerRatings, matches } from "@chess-club/db";
 import { createTestApp, type TestApp } from "../helpers/app.js";
 import {
-  seedClub,
   seedPlayer,
   seedAuthenticatedOwner,
   seedTournament
@@ -25,12 +24,13 @@ describe("player routes", () => {
   // -------------------------------------------------------------------------
   describe("POST /clubs/:clubId/players", () => {
     it("creates a player with default ratings", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
 
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/players`,
-        payload: { displayName: "Alice" }
+        payload: { displayName: "Alice" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(201);
@@ -58,12 +58,13 @@ describe("player routes", () => {
     });
 
     it("returns 400 for empty displayName", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
 
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/players`,
-        payload: { displayName: "   " }
+        payload: { displayName: "   " },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -74,13 +75,14 @@ describe("player routes", () => {
     });
 
     it("returns 400 for duplicate player name in club", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Bob" });
 
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/players`,
-        payload: { displayName: "Bob" }
+        payload: { displayName: "Bob" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -95,12 +97,13 @@ describe("player routes", () => {
   // -------------------------------------------------------------------------
   describe("DELETE /clubs/:clubId/players/:playerId", () => {
     it("deletes a player without match history", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club.id });
 
       const response = await testApp.app.inject({
         method: "DELETE",
-        url: `/clubs/${club.id}/players/${player.id}`
+        url: `/clubs/${club.id}/players/${player.id}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(204);
@@ -121,13 +124,14 @@ describe("player routes", () => {
     });
 
     it("returns 404 for player not in club", async () => {
-      const club1 = await seedClub(testApp.db);
-      const club2 = await seedClub(testApp.db);
+      const { club: club1 } = await seedAuthenticatedOwner(testApp.db);
+      const { club: club2, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club1.id });
 
       const response = await testApp.app.inject({
         method: "DELETE",
-        url: `/clubs/${club2.id}/players/${player.id}`
+        url: `/clubs/${club2.id}/players/${player.id}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(404);
@@ -138,7 +142,7 @@ describe("player routes", () => {
     });
 
     it("returns 400 for player with match history", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club.id });
       const tournament = await seedTournament(testApp.db, { clubId: club.id });
 
@@ -155,7 +159,8 @@ describe("player routes", () => {
 
       const response = await testApp.app.inject({
         method: "DELETE",
-        url: `/clubs/${club.id}/players/${player.id}`
+        url: `/clubs/${club.id}/players/${player.id}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -171,7 +176,7 @@ describe("player routes", () => {
   // -------------------------------------------------------------------------
   describe("GET /clubs/:clubId/players", () => {
     it("lists players with pagination", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       // Seed 12 players. parsePaginationParams only accepts limit ∈ [10, 20, 50]
       // (any other value silently falls back to 20). Use limit=10 to exercise
       // real pagination boundaries.
@@ -184,7 +189,8 @@ describe("player routes", () => {
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?limit=10&page=1`
+        url: `/clubs/${club.id}/players?limit=10&page=1`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -200,20 +206,22 @@ describe("player routes", () => {
       // Page 2 should have remaining 2 players
       const page2 = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?limit=10&page=2`
+        url: `/clubs/${club.id}/players?limit=10&page=2`,
+        cookies: { sid: session.token }
       });
       expect(page2.json().players).toHaveLength(2);
     });
 
     it("filters by name", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice" });
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Bob" });
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alfred" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?name=al`
+        url: `/clubs/${club.id}/players?name=al`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -224,13 +232,14 @@ describe("player routes", () => {
     });
 
     it("matches accented names case + accent insensitively via collation", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Café René" });
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Plain Jane" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?name=${encodeURIComponent("cafe rene")}`
+        url: `/clubs/${club.id}/players?name=${encodeURIComponent("cafe rene")}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -240,13 +249,14 @@ describe("player routes", () => {
     });
 
     it("treats `%` in the query as a literal, not a wildcard (LIKE injection)", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "50% off" });
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "plain" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?name=${encodeURIComponent("50%")}`
+        url: `/clubs/${club.id}/players?name=${encodeURIComponent("50%")}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -256,13 +266,14 @@ describe("player routes", () => {
     });
 
     it("treats `_` in the query as a literal, not a single-char wildcard", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "a_b" });
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "axb" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?name=${encodeURIComponent("a_b")}`
+        url: `/clubs/${club.id}/players?name=${encodeURIComponent("a_b")}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -294,13 +305,14 @@ describe("player routes", () => {
     it.each(sqliPayloads)(
       "renders SQLi payload (%s) inert — treated as literal LIKE pattern",
       async (_label, payload) => {
-        const club = await seedClub(testApp.db);
+        const { club, session } = await seedAuthenticatedOwner(testApp.db);
         await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice" });
         await seedPlayer(testApp.db, { clubId: club.id, displayName: "Bob" });
 
         const response = await testApp.app.inject({
           method: "GET",
-          url: `/clubs/${club.id}/players?name=${encodeURIComponent(payload)}`
+          url: `/clubs/${club.id}/players?name=${encodeURIComponent(payload)}`,
+          cookies: { sid: session.token }
         });
 
         // 200 (request succeeded — no SQL syntax error escaped the bind)
@@ -317,12 +329,13 @@ describe("player routes", () => {
       // Sanity counterpart: prove the previous tests would fail if the literal
       // payload actually appeared in a row. This rules out "test passes because
       // search is broken" as the cause.
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "weird ' OR '1'='1 name" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?name=${encodeURIComponent("' OR '1'='1")}`
+        url: `/clubs/${club.id}/players?name=${encodeURIComponent("' OR '1'='1")}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -332,13 +345,14 @@ describe("player routes", () => {
     });
 
     it("accepts a very long name query (length cap, no error)", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice" });
 
       const longName = "a".repeat(500);
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?name=${longName}`
+        url: `/clubs/${club.id}/players?name=${longName}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -347,13 +361,14 @@ describe("player routes", () => {
     });
 
     it("filters by active status", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice", active: true });
       await seedPlayer(testApp.db, { clubId: club.id, displayName: "Bob", active: false });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?active=true`
+        url: `/clubs/${club.id}/players?active=true`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -363,7 +378,7 @@ describe("player routes", () => {
     });
 
     it("sorts by elo", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const p1 = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice" });
       const p2 = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Bob" });
 
@@ -379,7 +394,8 @@ describe("player routes", () => {
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?sortBy=elo&sortOrder=desc`
+        url: `/clubs/${club.id}/players?sortBy=elo&sortOrder=desc`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -389,12 +405,13 @@ describe("player routes", () => {
     });
 
     it("returns 404 for page beyond total", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedPlayer(testApp.db, { clubId: club.id });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/players?page=999`
+        url: `/clubs/${club.id}/players?page=999`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(404);
@@ -410,12 +427,13 @@ describe("player routes", () => {
   // -------------------------------------------------------------------------
   describe("GET /players/:id", () => {
     it("returns player with ratings and club info", async () => {
-      const club = await seedClub(testApp.db, { name: "Test Club" });
+      const { club, session } = await seedAuthenticatedOwner(testApp.db, { clubName: "Test Club" });
       const player = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/players/${player.id}`
+        url: `/players/${player.id}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -432,9 +450,11 @@ describe("player routes", () => {
     });
 
     it("returns 404 for non-existent player", async () => {
+      const { session } = await seedAuthenticatedOwner(testApp.db);
       const response = await testApp.app.inject({
         method: "GET",
-        url: "/players/00000000-0000-0000-0000-000000000000"
+        url: "/players/00000000-0000-0000-0000-000000000000",
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(404);
@@ -450,13 +470,14 @@ describe("player routes", () => {
   // -------------------------------------------------------------------------
   describe("PUT /players/:id", () => {
     it("updates player displayName", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice" });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/players/${player.id}`,
-        payload: { displayName: "Alice Updated" }
+        payload: { displayName: "Alice Updated" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -472,13 +493,14 @@ describe("player routes", () => {
     });
 
     it("updates player active status", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Alice", active: true });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/players/${player.id}`,
-        payload: { active: false }
+        payload: { active: false },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -487,13 +509,14 @@ describe("player routes", () => {
     });
 
     it("returns 400 for empty displayName", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club.id });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/players/${player.id}`,
-        payload: { displayName: "   " }
+        payload: { displayName: "   " },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -504,13 +527,14 @@ describe("player routes", () => {
     });
 
     it("returns 400 for no fields to update", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const player = await seedPlayer(testApp.db, { clubId: club.id });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/players/${player.id}`,
-        payload: {}
+        payload: {},
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -521,10 +545,12 @@ describe("player routes", () => {
     });
 
     it("returns 404 for non-existent player", async () => {
+      const { session } = await seedAuthenticatedOwner(testApp.db);
       const response = await testApp.app.inject({
         method: "PUT",
         url: "/players/00000000-0000-0000-0000-000000000000",
-        payload: { displayName: "Test" }
+        payload: { displayName: "Test" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(404);

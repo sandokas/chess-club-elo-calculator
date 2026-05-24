@@ -343,8 +343,7 @@ export async function getRoundMatches(db: Db, roundId: string) {
 export async function updateMatchResult(
   db: Db,
   matchId: string,
-  result: number | null,
-  tournamentId: string
+  result: number | null
 ) {
   const matchResult = await db.select({
     id: matches.id,
@@ -359,11 +358,10 @@ export async function updateMatchResult(
   .where(eq(matches.id, matchId))
   .limit(1);
 
-  if (matchResult.length === 0) {
+  const [match] = matchResult;
+  if (!match) {
     return null;
   }
-
-  const match = matchResult[0];
 
   if (match.tournamentStatus === "completed") {
     return { error: "ValidationError", message: "Cannot update match result for completed tournament" };
@@ -384,10 +382,13 @@ export async function updateMatchResult(
     return { error: "ValidationError", message: "Can only update a player's last game. To update earlier games, rewind game by game." };
   }
 
-  const updatedMatchResult = await db.update(matches)
+  const [updatedMatch] = await db.update(matches)
     .set({ result: result })
     .where(eq(matches.id, matchId))
     .returning();
+  if (!updatedMatch) {
+    throw new Error("Failed to update match result");
+  }
 
   if (result === null) {
     const matchAuditResult = await db.select({
@@ -533,5 +534,5 @@ export async function updateMatchResult(
     }
   }
 
-  return { match: { id: updatedMatchResult[0]?.id, result: updatedMatchResult[0]?.result } };
+  return { match: { id: updatedMatch.id, result: updatedMatch.result } };
 }

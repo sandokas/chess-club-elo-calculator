@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { tournaments } from "@chess-club/db";
 import { createTestApp, type TestApp } from "../helpers/app.js";
-import { seedClub, seedTournament } from "../helpers/seed.js";
+import { seedAuthenticatedOwner, seedTournament } from "../helpers/seed.js";
 
 describe("tournament routes", () => {
   let testApp: TestApp;
@@ -17,48 +17,52 @@ describe("tournament routes", () => {
 
   describe("POST /clubs/:clubId/tournaments", () => {
     it("returns 400 when name is missing", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
 
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/tournaments`,
-        payload: {}
+        payload: {},
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
     });
 
     it("returns 400 when format is invalid", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
 
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/tournaments`,
-        payload: { name: "Test Tournament", format: "invalid" }
+        payload: { name: "Test Tournament", format: "invalid" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
     });
 
     it("returns 400 when totalRounds is out of range", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
 
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/tournaments`,
-        payload: { name: "Test Tournament", totalRounds: 100 }
+        payload: { name: "Test Tournament", totalRounds: 100 },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
     });
 
     it("creates a draft tournament with valid input", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
 
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/tournaments`,
-        payload: { name: "First Tournament", format: "swiss", totalRounds: 5 }
+        payload: { name: "First Tournament", format: "swiss", totalRounds: 5 },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(201);
@@ -80,13 +84,14 @@ describe("tournament routes", () => {
     });
 
     it("returns 400 when the club already has an ongoing tournament", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedTournament(testApp.db, { clubId: club.id, status: "active" });
 
       const response = await testApp.app.inject({
         method: "POST",
         url: `/clubs/${club.id}/tournaments`,
-        payload: { name: "Another Tournament" }
+        payload: { name: "Another Tournament" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -96,12 +101,13 @@ describe("tournament routes", () => {
 
   describe("GET /clubs/:clubId/tournaments", () => {
     it("lists tournaments without requiring create input", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedTournament(testApp.db, { clubId: club.id, name: "Dashboard Tournament" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/tournaments?limit=6`
+        url: `/clubs/${club.id}/tournaments?limit=6`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -114,13 +120,14 @@ describe("tournament routes", () => {
 
   describe("PUT /tournaments/:id", () => {
     it("updates name and totalRounds on a draft tournament", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const t = await seedTournament(testApp.db, { clubId: club.id, name: "Old", totalRounds: 4 });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/tournaments/${t.id}`,
-        payload: { name: "Updated Tournament Name", totalRounds: 7 }
+        payload: { name: "Updated Tournament Name", totalRounds: 7 },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -131,26 +138,28 @@ describe("tournament routes", () => {
     });
 
     it("returns 400 for an invalid status value", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const t = await seedTournament(testApp.db, { clubId: club.id });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/tournaments/${t.id}`,
-        payload: { status: "invalid" }
+        payload: { status: "invalid" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
     });
 
     it("returns 400 for an invalid pairingMethod value", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const t = await seedTournament(testApp.db, { clubId: club.id });
 
       const response = await testApp.app.inject({
         method: "PUT",
         url: `/tournaments/${t.id}`,
-        payload: { pairingMethod: "invalid" }
+        payload: { pairingMethod: "invalid" },
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -159,12 +168,13 @@ describe("tournament routes", () => {
 
   describe("DELETE /tournaments/:id", () => {
     it("deletes a draft tournament and the row is gone", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const t = await seedTournament(testApp.db, { clubId: club.id, status: "draft" });
 
       const response = await testApp.app.inject({
         method: "DELETE",
-        url: `/tournaments/${t.id}`
+        url: `/tournaments/${t.id}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -177,12 +187,13 @@ describe("tournament routes", () => {
     });
 
     it("refuses to delete a non-draft tournament", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       const t = await seedTournament(testApp.db, { clubId: club.id, status: "active" });
 
       const response = await testApp.app.inject({
         method: "DELETE",
-        url: `/tournaments/${t.id}`
+        url: `/tournaments/${t.id}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(400);
@@ -190,9 +201,11 @@ describe("tournament routes", () => {
     });
 
     it("returns 404 for an unknown tournament id", async () => {
+      const { session } = await seedAuthenticatedOwner(testApp.db);
       const response = await testApp.app.inject({
         method: "DELETE",
-        url: "/tournaments/00000000-0000-0000-0000-000000000000"
+        url: "/tournaments/00000000-0000-0000-0000-000000000000",
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(404);
@@ -204,13 +217,14 @@ describe("tournament routes", () => {
   // ---------------------------------------------------------------------------
   describe("GET /clubs/:clubId/tournaments name filter", () => {
     it("matches accented names case + accent insensitively via collation", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedTournament(testApp.db, { clubId: club.id, name: "Café Open" });
       await seedTournament(testApp.db, { clubId: club.id, name: "Winter Cup" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent("cafe")}`
+        url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent("cafe")}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -220,13 +234,14 @@ describe("tournament routes", () => {
     });
 
     it("treats `%` in the query as a literal, not a wildcard (LIKE injection)", async () => {
-      const club = await seedClub(testApp.db);
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
       await seedTournament(testApp.db, { clubId: club.id, name: "50% Discount Open" });
       await seedTournament(testApp.db, { clubId: club.id, name: "Plain Open" });
 
       const response = await testApp.app.inject({
         method: "GET",
-        url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent("50%")}`
+        url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent("50%")}`,
+        cookies: { sid: session.token }
       });
 
       expect(response.statusCode).toBe(200);
@@ -255,13 +270,14 @@ describe("tournament routes", () => {
     it.each(sqliPayloads)(
       "renders SQLi payload (%s) inert — treated as literal LIKE pattern",
       async (_label, payload) => {
-        const club = await seedClub(testApp.db);
+        const { club, session } = await seedAuthenticatedOwner(testApp.db);
         await seedTournament(testApp.db, { clubId: club.id, name: "Winter Cup" });
         await seedTournament(testApp.db, { clubId: club.id, name: "Summer Open" });
 
         const response = await testApp.app.inject({
           method: "GET",
-          url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent(payload)}`
+          url: `/clubs/${club.id}/tournaments?name=${encodeURIComponent(payload)}`,
+          cookies: { sid: session.token }
         });
 
         expect(response.statusCode).toBe(200);

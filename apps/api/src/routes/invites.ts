@@ -1,10 +1,9 @@
 import { type FastifyInstance } from "fastify";
-import { eq, and } from "drizzle-orm";
 
-import { requireClubRole } from "../lib/auth/rbac.js";
 import { createNotFoundError, createValidationError } from "../lib/errors.js";
 import {
   createInvite,
+  createJoinRequestByClubName,
   listInvites,
   createJoinRequest,
   listJoinRequests,
@@ -18,16 +17,7 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
   // POST /clubs/:clubId/invites - Create an invite for a specific email
   app.post<{ Params: { clubId: string }; Body: { email: string; role?: string } }>(
     "/clubs/:clubId/invites",
-    {
-      preHandler: [
-        async (request, reply) => {
-          if (!request.user) {
-            return reply.status(401).send({ error: "Unauthorized", message: "Authentication required" });
-          }
-          await requireClubRole(request, reply, ["owner", "admin"]);
-        }
-      ]
-    },
+    { preHandler: [app.auth.requireClubRole("admin")] },
     async (request, reply) => {
       const db = app.db;
       const { email, role = "member" } = request.body;
@@ -64,16 +54,7 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
   // GET /clubs/:clubId/invites - List invites for a club
   app.get<{ Params: { clubId: string } }>(
     "/clubs/:clubId/invites",
-    {
-      preHandler: [
-        async (request, reply) => {
-          if (!request.user) {
-            return reply.status(401).send({ error: "Unauthorized", message: "Authentication required" });
-          }
-          await requireClubRole(request, reply, ["owner", "admin"]);
-        }
-      ]
-    },
+    { preHandler: [app.auth.requireClubRole("admin")] },
     async (request, reply) => {
       const db = app.db;
       const { clubId } = request.params;
@@ -85,15 +66,7 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
   // POST /clubs/:clubId/join-requests - Create a join request
   app.post<{ Params: { clubId: string }; Body: { message?: string } }>(
     "/clubs/:clubId/join-requests",
-    {
-      preHandler: [
-        async (request, reply) => {
-          if (!request.user) {
-            return reply.status(401).send({ error: "Unauthorized", message: "Authentication required" });
-          }
-        }
-      ]
-    },
+    { preHandler: [app.auth.requireAuth] },
     async (request, reply) => {
       const db = app.db;
       const { clubId } = request.params;
@@ -121,19 +94,36 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
     }
   );
 
+  app.post<{ Body: { clubName: string; message?: string } }>(
+    "/club-join-requests",
+    { preHandler: [app.auth.requireAuth] },
+    async (request, reply) => {
+      const db = app.db;
+      const { clubName, message } = request.body;
+
+      try {
+        const result = await createJoinRequestByClubName(db, {
+          clubName,
+          userId: request.user!.id,
+          message
+        });
+        return reply.status(202).send(result);
+      } catch (error) {
+        if (error instanceof Error && error.message === "clubName is required") {
+          return reply.status(400).send({
+            error: "ValidationError",
+            message: error.message
+          });
+        }
+        throw error;
+      }
+    }
+  );
+
   // GET /clubs/:clubId/join-requests - List join requests for a club
   app.get<{ Params: { clubId: string } }>(
     "/clubs/:clubId/join-requests",
-    {
-      preHandler: [
-        async (request, reply) => {
-          if (!request.user) {
-            return reply.status(401).send({ error: "Unauthorized", message: "Authentication required" });
-          }
-          await requireClubRole(request, reply, ["owner", "admin"]);
-        }
-      ]
-    },
+    { preHandler: [app.auth.requireClubRole("admin")] },
     async (request, reply) => {
       const db = app.db;
       const { clubId } = request.params;
@@ -143,22 +133,13 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
   );
 
   // PUT /clubs/:clubId/join-requests/:id - Accept or reject a join request
-  app.put<{ Params: { clubId: string; id: string }; Body: { action: "accept" | "reject"; playerId?: string } }>(
+  app.put<{ Params: { clubId: string; id: string }; Body: { action: "accept" | "reject"; playerId?: string; playerDisplayName?: string } }>(
     "/clubs/:clubId/join-requests/:id",
-    {
-      preHandler: [
-        async (request, reply) => {
-          if (!request.user) {
-            return reply.status(401).send({ error: "Unauthorized", message: "Authentication required" });
-          }
-          await requireClubRole(request, reply, ["owner", "admin"]);
-        }
-      ]
-    },
+    { preHandler: [app.auth.requireClubRole("admin")] },
     async (request, reply) => {
       const db = app.db;
       const { clubId, id } = request.params;
-      const { action, playerId } = request.body;
+      const { action, playerId, playerDisplayName } = request.body;
 
       try {
         const result = await processJoinRequest(db, {
@@ -166,13 +147,14 @@ export async function registerInviteRoutes(app: FastifyInstance): Promise<void> 
           id,
           action,
           playerId,
+          playerDisplayName,
           decidedByUserId: request.user!.id
         });
         return reply.status(200).send(result);
       } catch (error) {
         if (error instanceof Error) {
           if (error.message === "action must be 'accept' or 'reject'" ||
-              error.message === "playerId is required when accepting a join request") {
+              error.message === "playerId or playerDisplayName is required when accepting a join request") {
             return reply.status(400).send({
               error: "ValidationError",
               message: error.message

@@ -7,10 +7,11 @@ declare module "fastify" {
     db: Db;
     auth: {
       requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-      requireClubRole: (roles: ClubRole[]) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-      requireTournamentClubRole: (roles: ClubRole[]) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-      requirePlayerClubRole: (roles: ClubRole[]) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-      requireMatchClubRole: (roles: ClubRole[]) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+      requireClubRole: (role: ClubRole) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+      requireTournamentClubRole: (role: ClubRole) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+      requirePlayerClubRole: (role: ClubRole) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+      requireMatchClubRole: (role: ClubRole) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+      requireRoundClubRole: (role: ClubRole) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     };
   }
 }

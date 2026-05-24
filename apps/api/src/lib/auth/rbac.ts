@@ -1,11 +1,31 @@
 
 import type { Db } from "@chess-club/db";
-import { clubMemberships, tournaments, players } from "@chess-club/db";
+import { clubs, clubMemberships, tournaments, players, matches, rounds } from "@chess-club/db";
 import { eq, and } from "drizzle-orm";
 import type { SessionData } from "./sessions.js";
 import type { FastifyRequest, FastifyReply } from "fastify";
 
 export type ClubRole = "owner" | "admin" | "organizer" | "member";
+export const clubRoles = ["owner", "admin", "organizer", "member"] as const satisfies readonly ClubRole[];
+
+export const clubRoleRank = {
+  member: 0,
+  organizer: 1,
+  admin: 2,
+  owner: 3
+} as const satisfies Record<ClubRole, number>;
+
+export function hasClubRoleAtLeast(actual: ClubRole, required: ClubRole): boolean {
+  return clubRoleRank[actual] >= clubRoleRank[required];
+}
+
+export function isClubRole(value: string): value is ClubRole {
+  return clubRoles.includes(value as ClubRole);
+}
+
+function requiredRoleMessage(required: ClubRole): string {
+  return `Required role: ${required} or higher`;
+}
 
 /**
  * Attach the current user to the request object
@@ -48,12 +68,12 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
 }
 
 /**
- * Require specific club roles - returns 403 if user doesn't have required role
+ * Require a minimum club role - returns 403 if user doesn't have required role
  */
-export async function requireClubRole(
+export async function requireClubRoleAtLeast(
   request: FastifyRequest,
   reply: FastifyReply,
-  roles: ClubRole[]
+  requiredRole: ClubRole
 ) {
   if (!request.user) {
     return reply.status(401).send({
@@ -62,7 +82,7 @@ export async function requireClubRole(
     });
   }
 
-  const clubId = request.params.clubId as string;
+  const { clubId } = request.params as { clubId?: string };
   if (!clubId) {
     return reply.status(400).send({
       error: "BadRequest",
@@ -72,19 +92,33 @@ export async function requireClubRole(
 
   const membership = request.user.memberships.find(m => m.clubId === clubId);
   if (!membership) {
+    const [club] = await request.server.db
+      .select({ id: clubs.id })
+      .from(clubs)
+      .where(eq(clubs.id, clubId))
+      .limit(1);
+    if (!club) {
+      return reply.status(404).send({
+        error: "NotFound",
+        message: "Club not found"
+      });
+    }
+
     return reply.status(403).send({
       error: "Forbidden",
       message: "You are not a member of this club"
     });
   }
 
-  if (!roles.includes(membership.role)) {
+  if (!hasClubRoleAtLeast(membership.role, requiredRole)) {
     return reply.status(403).send({
       error: "Forbidden",
-      message: `Required role: ${roles.join(" or ")}`
+      message: requiredRoleMessage(requiredRole)
     });
   }
 }
+
+export const requireClubRole = requireClubRoleAtLeast;
 
 /**
  * Get membership for a specific club
@@ -125,13 +159,33 @@ export async function resolveClubIdFromPlayer(db: Db, playerId: string): Promise
   return row?.clubId ?? null;
 }
 
-/**
- * Guard that resolves club ID from tournament and checks role
- */
-export async function requireTournamentClubRole(
+export async function resolveClubIdFromRound(db: Db, roundId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ clubId: tournaments.clubId })
+    .from(rounds)
+    .innerJoin(tournaments, eq(tournaments.id, rounds.tournamentId))
+    .where(eq(rounds.id, roundId))
+    .limit(1);
+
+  return row?.clubId ?? null;
+}
+
+export async function resolveClubIdFromMatch(db: Db, matchId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ clubId: matches.clubId })
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1);
+
+  return row?.clubId ?? null;
+}
+
+async function requireResolvedClubRole(
   request: FastifyRequest,
   reply: FastifyReply,
-  roles: ClubRole[]
+  requiredRole: ClubRole,
+  clubId: string | null,
+  notFoundMessage: string
 ) {
   if (!request.user) {
     return reply.status(401).send({
@@ -140,14 +194,10 @@ export async function requireTournamentClubRole(
     });
   }
 
-  const db = request.server.db;
-  const tournamentId = request.params.id as string;
-  const clubId = await resolveClubIdFromTournament(db, tournamentId);
-
   if (!clubId) {
     return reply.status(404).send({
       error: "NotFound",
-      message: "Tournament not found"
+      message: notFoundMessage
     });
   }
 
@@ -159,12 +209,26 @@ export async function requireTournamentClubRole(
     });
   }
 
-  if (!roles.includes(membership.role)) {
+  if (!hasClubRoleAtLeast(membership.role, requiredRole)) {
     return reply.status(403).send({
       error: "Forbidden",
-      message: `Required role: ${roles.join(" or ")}`
+      message: requiredRoleMessage(requiredRole)
     });
   }
+}
+
+/**
+ * Guard that resolves club ID from tournament and checks role
+ */
+export async function requireTournamentClubRole(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  requiredRole: ClubRole
+) {
+  const db = request.server.db;
+  const { id: tournamentId } = request.params as { id: string };
+  const clubId = await resolveClubIdFromTournament(db, tournamentId);
+  return requireResolvedClubRole(request, reply, requiredRole, clubId, "Tournament not found");
 }
 
 /**
@@ -173,40 +237,34 @@ export async function requireTournamentClubRole(
 export async function requirePlayerClubRole(
   request: FastifyRequest,
   reply: FastifyReply,
-  roles: ClubRole[]
+  requiredRole: ClubRole
 ) {
-  if (!request.user) {
-    return reply.status(401).send({
-      error: "Unauthorized",
-      message: "Authentication required"
-    });
-  }
-
   const db = request.server.db;
-  const playerId = request.params.id as string;
+  const { id: playerId } = request.params as { id: string };
   const clubId = await resolveClubIdFromPlayer(db, playerId);
+  return requireResolvedClubRole(request, reply, requiredRole, clubId, "Player not found");
+}
 
-  if (!clubId) {
-    return reply.status(404).send({
-      error: "NotFound",
-      message: "Player not found"
-    });
-  }
+export async function requireRoundClubRole(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  requiredRole: ClubRole
+) {
+  const db = request.server.db;
+  const { id: roundId } = request.params as { id: string };
+  const clubId = await resolveClubIdFromRound(db, roundId);
+  return requireResolvedClubRole(request, reply, requiredRole, clubId, "Round not found");
+}
 
-  const membership = request.user.memberships.find(m => m.clubId === clubId);
-  if (!membership) {
-    return reply.status(403).send({
-      error: "Forbidden",
-      message: "You are not a member of this club"
-    });
-  }
-
-  if (!roles.includes(membership.role)) {
-    return reply.status(403).send({
-      error: "Forbidden",
-      message: `Required role: ${roles.join(" or ")}`
-    });
-  }
+export async function requireMatchClubRole(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  requiredRole: ClubRole
+) {
+  const db = request.server.db;
+  const { id: matchId } = request.params as { id: string };
+  const clubId = await resolveClubIdFromMatch(db, matchId);
+  return requireResolvedClubRole(request, reply, requiredRole, clubId, "Match not found");
 }
 
 // Extend FastifyRequest type to include user

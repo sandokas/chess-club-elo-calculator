@@ -30,7 +30,7 @@ vi.mock("google-auth-library", () => {
     verifyIdToken = mockVerifyIdToken;
     generateAuthUrl = mockGenerateAuthUrl;
   }
-  return { OAuth2Client: MockOAuth2Client };
+  return { OAuth2Client: MockOAuth2Client, CodeChallengeMethod: { Plain: "plain", S256: "S256" } };
 });
 
 describe("auth routes", () => {

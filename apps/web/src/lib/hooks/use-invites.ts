@@ -51,6 +51,13 @@ export function useCreateJoinRequest(clubId: string) {
   });
 }
 
+export function useCreateJoinRequestByClubName() {
+  return useMutation({
+    mutationFn: (data: { clubName: string; message?: string }) =>
+      postJson<{ message: string }>("/club-join-requests", data),
+  });
+}
+
 export function useProcessJoinRequest(clubId: string) {
   const queryClient = useQueryClient();
 

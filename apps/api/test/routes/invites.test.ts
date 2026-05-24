@@ -230,6 +230,82 @@ describe("invite routes", () => {
     });
   });
 
+  describe("POST /club-join-requests", () => {
+    it("returns 401 without authentication", async () => {
+      const response = await testApp.app.inject({
+        method: "POST",
+        url: "/club-join-requests",
+        payload: { clubName: "Private Club" }
+      });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it("creates a pending request by club name without exposing club existence", async () => {
+      const club = await seedClub(testApp.db, { name: "Private Club" });
+      const user = await seedUser(testApp.db);
+      const { token } = await seedSession(testApp.db, { userId: user.id });
+
+      const response = await testApp.app.inject({
+        method: "POST",
+        url: "/club-join-requests",
+        payload: { clubName: "Private Club", message: "please" },
+        cookies: { sid: token }
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toEqual({ message: "Join request submitted if the club exists" });
+
+      const rows = await testApp.db
+        .select()
+        .from(clubJoinRequests)
+        .where(and(eq(clubJoinRequests.clubId, club.id), eq(clubJoinRequests.userId, user.id)));
+      expect(rows).toHaveLength(1);
+    });
+
+    it("returns the same response when the club does not exist", async () => {
+      const user = await seedUser(testApp.db);
+      const { token } = await seedSession(testApp.db, { userId: user.id });
+
+      const response = await testApp.app.inject({
+        method: "POST",
+        url: "/club-join-requests",
+        payload: { clubName: "Missing Club" },
+        cookies: { sid: token }
+      });
+
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toEqual({ message: "Join request submitted if the club exists" });
+
+      const rows = await testApp.db
+        .select()
+        .from(clubJoinRequests)
+        .where(eq(clubJoinRequests.userId, user.id));
+      expect(rows).toHaveLength(0);
+    });
+
+    it("does not duplicate pending requests", async () => {
+      await seedClub(testApp.db, { name: "Private Club" });
+      const user = await seedUser(testApp.db);
+      const { token } = await seedSession(testApp.db, { userId: user.id });
+
+      for (let i = 0; i < 2; i++) {
+        const response = await testApp.app.inject({
+          method: "POST",
+          url: "/club-join-requests",
+          payload: { clubName: "Private Club" },
+          cookies: { sid: token }
+        });
+        expect(response.statusCode).toBe(202);
+      }
+
+      const rows = await testApp.db
+        .select()
+        .from(clubJoinRequests)
+        .where(eq(clubJoinRequests.userId, user.id));
+      expect(rows).toHaveLength(1);
+    });
+  });
+
   // -------------------------------------------------------------------------
   // GET /clubs/:clubId/join-requests
   // -------------------------------------------------------------------------
@@ -360,6 +436,36 @@ describe("invite routes", () => {
         .from(clubJoinRequests)
         .where(eq(clubJoinRequests.id, joinRequestId));
       expect(updated[0]!.status).toBe("accepted");
+    });
+
+    it("accepting can create and link a new player", async () => {
+      const { club, session: adminSession } = await seedAuthenticatedOwner(testApp.db);
+      const applicant = await seedUser(testApp.db, { email: "new-player@example.com" });
+      const { token: applicantToken } = await seedSession(testApp.db, { userId: applicant.id });
+
+      const reqRes = await testApp.app.inject({
+        method: "POST",
+        url: `/clubs/${club.id}/join-requests`,
+        payload: {},
+        cookies: { sid: applicantToken }
+      });
+      expect(reqRes.statusCode).toBe(201);
+      const joinRequestId = reqRes.json().joinRequest.id;
+
+      const acceptRes = await testApp.app.inject({
+        method: "PUT",
+        url: `/clubs/${club.id}/join-requests/${joinRequestId}`,
+        payload: { action: "accept", playerDisplayName: "New Member" },
+        cookies: { sid: adminSession.token }
+      });
+      expect(acceptRes.statusCode).toBe(200);
+
+      const linked = await testApp.db
+        .select()
+        .from(players)
+        .where(and(eq(players.clubId, club.id), eq(players.linkedUserId, applicant.id)));
+      expect(linked).toHaveLength(1);
+      expect(linked[0]!.displayName).toBe("New Member");
     });
   });
 });

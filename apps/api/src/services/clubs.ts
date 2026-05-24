@@ -23,7 +23,14 @@ export function generateSlug(name: string): string {
   return trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
-export async function listClubs(db: Db, userId?: string) {
+type ClubDb = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+async function slugExistsIn(db: ClubDb, slug: string): Promise<boolean> {
+  const result = await db.select({ id: clubs.id }).from(clubs).where(eq(clubs.slug, slug)).limit(1);
+  return result.length > 0;
+}
+
+export async function listClubsForUser(db: Db, userId: string) {
   const result = await db.select({
     id: clubs.id,
     name: clubs.name,
@@ -33,16 +40,15 @@ export async function listClubs(db: Db, userId?: string) {
     country: clubs.country,
     createdAt: clubs.createdAt,
     updatedAt: clubs.updatedAt
-  }).from(clubs)
-  .where(
-    userId 
-      ? sql`${clubs.id} IN (SELECT ${clubMemberships.clubId} FROM ${clubMemberships} WHERE ${clubMemberships.userId} = ${userId})`
-      : undefined
-  )
+  }).from(clubMemberships)
+  .innerJoin(clubs, eq(clubs.id, clubMemberships.clubId))
+  .where(eq(clubMemberships.userId, userId))
   .orderBy(clubs.name);
   
   return result;
 }
+
+export const listClubs = listClubsForUser;
 
 export async function getClubById(db: Db, clubId: string) {
   const result = await db.select({
@@ -87,11 +93,10 @@ export async function getClubBySlug(db: Db, slug: string) {
 }
 
 export async function slugExists(db: Db, slug: string): Promise<boolean> {
-  const result = await db.select({ id: clubs.id }).from(clubs).where(eq(clubs.slug, slug)).limit(1);
-  return result.length > 0;
+  return slugExistsIn(db, slug);
 }
 
-export async function createClub(db: Db, input: ClubInput, ownerUserId?: string) {
+export async function createClub(db: Db, input: ClubInput, ownerUserId: string) {
   const { name, description, city, country } = input;
   const trimmedName = name.trim();
   const slug = generateSlug(name);
@@ -100,33 +105,33 @@ export async function createClub(db: Db, input: ClubInput, ownerUserId?: string)
     throw new Error("name must contain valid characters");
   }
 
-  if (await slugExists(db, slug)) {
+  if (await slugExistsIn(db, slug)) {
     throw new Error("A club with this slug already exists");
   }
 
-  const result = await db.insert(clubs).values({
-    name: trimmedName,
-    slug: slug,
-    description: description?.trim() || null,
-    city: city?.trim() || null,
-    country: country?.trim() || null
-  }).returning();
+  return await db.transaction(async (tx) => {
+    const result = await tx.insert(clubs).values({
+      name: trimmedName,
+      slug: slug,
+      description: description?.trim() || null,
+      city: city?.trim() || null,
+      country: country?.trim() || null
+    }).returning();
 
-  if (!result[0]) {
-    throw new Error("Failed to create club");
-  }
+    if (!result[0]) {
+      throw new Error("Failed to create club");
+    }
 
-  const club = result[0];
-  
-  if (ownerUserId) {
-    await db.insert(clubMemberships).values({
+    const club = result[0];
+
+    await tx.insert(clubMemberships).values({
       clubId: club.id,
       userId: ownerUserId,
       role: "owner"
     });
-  }
 
-  return club;
+    return club;
+  });
 }
 
 export async function updateClub(db: Db, clubId: string, input: ClubUpdate) {
@@ -164,7 +169,7 @@ export async function recomputeClubRatings(db: Db, clubId: string) {
   const playersResult = await db.select({ id: players.id }).from(players).where(eq(players.clubId, clubId));
 
   if (playersResult.length === 0) {
-    return { playersUpdated: 0 };
+    return { playersUpdated: 0, message: "No players found in club" };
   }
 
   const playerIds = playersResult.map(row => row.id);
@@ -180,7 +185,7 @@ export async function recomputeClubRatings(db: Db, clubId: string) {
   .orderBy(matches.playedOn, matches.id);
 
   if (matchesResult.length === 0) {
-    return { playersUpdated: 0 };
+    return { playersUpdated: 0, message: "No completed matches found in club" };
   }
 
   const matchesInput: MatchInput[] = matchesResult.map(row => ({
@@ -232,5 +237,5 @@ export async function recomputeClubRatings(db: Db, clubId: string) {
       .where(eq(matches.id, audit.matchId as string));
   }
 
-  return { playersUpdated: updatedCount };
+  return { playersUpdated: updatedCount, message: "Ratings recomputed successfully" };
 }

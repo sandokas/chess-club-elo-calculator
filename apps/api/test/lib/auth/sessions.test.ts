@@ -10,6 +10,7 @@ import {
   revokeAllUserSessions,
   touchSession
 } from "../../../src/lib/auth/sessions.js";
+import { clubRoles } from "../../../src/lib/auth/rbac.js";
 import { hashSessionToken } from "../../../src/lib/auth/cookies.js";
 import { seedClub, seedMembership, seedUser } from "../../helpers/seed.js";
 
@@ -103,8 +104,7 @@ describe("sessions", () => {
       const { token } = await createSession(db, user.id);
 
       const session = await loadSession(db, token);
-      const roles = ["owner", "admin", "organizer", "member"] as const;
-      expect(roles).toContain(session!.memberships[0]!.role);
+      expect(clubRoles).toContain(session!.memberships[0]!.role);
     });
   });
 

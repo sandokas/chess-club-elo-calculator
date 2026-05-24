@@ -1,11 +1,15 @@
 import type { Db } from "@chess-club/db";
 import { eq, and, desc } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
+import { ratingConfig } from "@chess-club/config";
 import { hashSessionToken } from "../lib/auth/cookies.js";
+import { clubRoles, isClubRole, type ClubRole } from "../lib/auth/rbac.js";
 import {
+  clubs,
   clubInvites,
   clubJoinRequests,
   clubMemberships,
+  playerRatings,
   players,
   users
 } from "@chess-club/db";
@@ -27,6 +31,12 @@ type CreateJoinRequestInput = {
   message?: string;
 };
 
+type CreateJoinRequestByClubNameInput = {
+  clubName: string;
+  userId: string;
+  message?: string;
+};
+
 type ListJoinRequestsInput = {
   clubId: string;
 };
@@ -36,6 +46,7 @@ type ProcessJoinRequestInput = {
   id: string;
   action: "accept" | "reject";
   playerId?: string;
+  playerDisplayName?: string;
   decidedByUserId: string;
 };
 
@@ -46,9 +57,8 @@ export async function createInvite(
   const { email, role = "member", clubId, invitedByUserId } = input;
 
   // Validate role
-  const validRoles = ["owner", "admin", "organizer", "member"];
-  if (!validRoles.includes(role)) {
-    throw new Error(`role must be one of: ${validRoles.join(", ")}`);
+  if (!isClubRole(role)) {
+    throw new Error(`role must be one of: ${clubRoles.join(", ")}`);
   }
 
   // Generate token
@@ -80,7 +90,7 @@ export async function createInvite(
     .values({
       clubId,
       email,
-      role: role as "owner" | "admin" | "organizer" | "member",
+      role: role as ClubRole,
       invitedByUserId,
       tokenHash,
       expiresAt
@@ -179,6 +189,46 @@ export async function createJoinRequest(
   return result[0]!;
 }
 
+export async function createJoinRequestByClubName(
+  db: Db,
+  input: CreateJoinRequestByClubNameInput
+) {
+  const normalizedClubName = input.clubName.trim();
+  if (!normalizedClubName) {
+    throw new Error("clubName is required");
+  }
+
+  const genericResult = { message: "Join request submitted if the club exists" };
+  const [club] = await db
+    .select({ id: clubs.id })
+    .from(clubs)
+    .where(eq(clubs.name, normalizedClubName))
+    .limit(1);
+
+  if (!club) {
+    return genericResult;
+  }
+
+  try {
+    await createJoinRequest(db, {
+      clubId: club.id,
+      userId: input.userId,
+      message: input.message
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "You are already a member of this club" ||
+        error.message === "A pending join request already exists")
+    ) {
+      return genericResult;
+    }
+    throw error;
+  }
+
+  return genericResult;
+}
+
 export async function listJoinRequests(
   db: Db,
   input: ListJoinRequestsInput
@@ -208,7 +258,7 @@ export async function processJoinRequest(
   db: Db,
   input: ProcessJoinRequestInput
 ) {
-  const { clubId, id, action, playerId, decidedByUserId } = input;
+  const { clubId, id, action, playerId, playerDisplayName, decidedByUserId } = input;
 
   if (action !== "accept" && action !== "reject") {
     throw new Error("action must be 'accept' or 'reject'");
@@ -253,8 +303,32 @@ export async function processJoinRequest(
   }
 
   if (action === "accept") {
-    if (!playerId) {
-      throw new Error("playerId is required when accepting a join request");
+    let acceptedPlayerId = playerId;
+    if (!acceptedPlayerId && playerDisplayName?.trim()) {
+      const [newPlayer] = await db
+        .insert(players)
+        .values({
+          clubId,
+          displayName: playerDisplayName.trim(),
+          linkedUserId: joinRequest.userId
+        })
+        .returning({ id: players.id });
+      acceptedPlayerId = newPlayer?.id;
+      if (acceptedPlayerId) {
+        await db.insert(playerRatings).values({
+          playerId: acceptedPlayerId,
+          clubId,
+          elo: ratingConfig.defaultElo,
+          glickoRating: ratingConfig.g2DefaultRating,
+          glickoRd: ratingConfig.g2DefaultRd,
+          glickoVol: ratingConfig.g2DefaultVol,
+          gamesPlayed: 0
+        });
+      }
+    }
+
+    if (!acceptedPlayerId) {
+      throw new Error("playerId or playerDisplayName is required when accepting a join request");
     }
 
     // Verify player belongs to this club
@@ -263,7 +337,7 @@ export async function processJoinRequest(
       .from(players)
       .where(
         and(
-          eq(players.id, playerId),
+          eq(players.id, acceptedPlayerId),
           eq(players.clubId, clubId)
         )
       );
@@ -276,7 +350,7 @@ export async function processJoinRequest(
     const linkedPlayerResult = await db
       .select({ linkedUserId: players.linkedUserId })
       .from(players)
-      .where(eq(players.id, playerId));
+      .where(eq(players.id, acceptedPlayerId));
 
     const linkedUserId = linkedPlayerResult[0]!.linkedUserId;
     if (linkedUserId && linkedUserId !== joinRequest.userId) {
@@ -294,7 +368,7 @@ export async function processJoinRequest(
     await db
       .update(players)
       .set({ linkedUserId: joinRequest.userId })
-      .where(eq(players.id, playerId));
+      .where(eq(players.id, acceptedPlayerId));
 
     // Update join request
     await db

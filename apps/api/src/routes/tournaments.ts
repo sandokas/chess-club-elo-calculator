@@ -6,7 +6,6 @@ import { parseBody, parseQuery } from "../lib/validate.js";
 import { parsePaginationParams, parseSortParams, parseStringFilter, escapeLikePattern, validateTournamentStatus } from "../lib/validators.js";
 import { createNotFoundError, createValidationError } from "../lib/errors.js";
 import { listTournaments, getTournamentById, getTournamentStandings } from "../services/tournaments.js";
-import { requireAuth, requireClubRole, requireTournamentClubRole, type ClubRole } from "../lib/auth/rbac.js";
 
 type ClubParams = {
   clubId: string;
@@ -17,14 +16,8 @@ type TournamentParams = {
 };
 
 export async function registerTournamentRoutes(app: FastifyInstance) {
-  const REQUIRE_AUTH = process.env.REQUIRE_AUTH === "true";
-
-  const conditionalRequireAuth = REQUIRE_AUTH ? requireAuth : async () => {};
-  const conditionalRequireClubRole = (roles: ClubRole[]) => REQUIRE_AUTH ? ((request: any, reply: any) => requireClubRole(request, reply, roles)) : async () => {};
-  const conditionalRequireTournamentClubRole = (roles: ClubRole[]) => REQUIRE_AUTH ? ((request: any, reply: any) => requireTournamentClubRole(request, reply, roles)) : async () => {};
-
   // List tournaments for a club
-  app.get<{ Params: ClubParams; Querystring: ListTournamentsQuery }>("/clubs/:clubId/tournaments", { preHandler: [conditionalRequireAuth, conditionalRequireClubRole(["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
+  app.get<{ Params: ClubParams; Querystring: ListTournamentsQuery }>("/clubs/:clubId/tournaments", { preHandler: [app.auth.requireClubRole("member")] }, async (request, reply) => {
     const { clubId } = request.params;
     const query = parseQuery(listTournamentsQuerySchema, request.query);
     const { page, limit } = parsePaginationParams(query);
@@ -51,7 +44,7 @@ export async function registerTournamentRoutes(app: FastifyInstance) {
   });
 
   // Create tournament
-  app.post<{ Params: ClubParams; Body: { name: string; startsOn?: string; format?: string; totalRounds?: number; pairingMethod?: string } }>("/clubs/:clubId/tournaments", { preHandler: [conditionalRequireAuth, conditionalRequireClubRole(["owner", "admin", "organizer"])] }, async (request, reply) => {
+  app.post<{ Params: ClubParams; Body: { name: string; startsOn?: string; format?: string; totalRounds?: number; pairingMethod?: string } }>("/clubs/:clubId/tournaments", { preHandler: [app.auth.requireClubRole("organizer")] }, async (request, reply) => {
     const body = parseBody(createTournamentSchema, request.body);
     const { name, startsOn, format, totalRounds, pairingMethod } = body;
     const { clubId } = request.params;
@@ -77,7 +70,7 @@ export async function registerTournamentRoutes(app: FastifyInstance) {
   });
 
   // Get tournament detail
-  app.get<{ Params: TournamentParams }>("/tournaments/:id", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
+  app.get<{ Params: TournamentParams }>("/tournaments/:id", { preHandler: [app.auth.requireTournamentClubRole("member")] }, async (request, reply) => {
     const result = await getTournamentById(app.db, request.params.id);
     if (!result) {
       throw createNotFoundError("Tournament not found");
@@ -86,18 +79,17 @@ export async function registerTournamentRoutes(app: FastifyInstance) {
   });
 
   // Update tournament
-  app.put<{ Params: TournamentParams; Body: { name?: string; startsOn?: string; status?: string; totalRounds?: number | null; pairingMethod?: string } }>("/tournaments/:id", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer"])] }, async (request, reply) => {
+  app.put<{ Params: TournamentParams; Body: { name?: string; startsOn?: string; status?: string; totalRounds?: number | null; pairingMethod?: string } }>("/tournaments/:id", { preHandler: [app.auth.requireTournamentClubRole("organizer")] }, async (request, reply) => {
     const body = parseBody(updateTournamentSchema, request.body);
     const { name, startsOn, status, totalRounds, pairingMethod } = body;
     const { id } = request.params;
 
     const currentResult = await app.db.select({ id: tournaments.id, status: tournaments.status, name: tournaments.name, startsOn: tournaments.startsOn }).from(tournaments).where(eq(tournaments.id, id)).limit(1);
 
-    if (currentResult.length === 0) {
+    const [current] = currentResult;
+    if (!current) {
       throw createNotFoundError("Tournament not found");
     }
-
-    const current = currentResult[0];
 
     if (current.status === "completed" && (name !== undefined || startsOn !== undefined)) {
       throw createValidationError("Cannot edit name or startsOn when tournament is completed. Revert status to active first.");
@@ -150,7 +142,7 @@ export async function registerTournamentRoutes(app: FastifyInstance) {
   });
 
   // Delete tournament
-  app.delete<{ Params: TournamentParams }>("/tournaments/:id", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer"])] }, async (request, reply) => {
+  app.delete<{ Params: TournamentParams }>("/tournaments/:id", { preHandler: [app.auth.requireTournamentClubRole("organizer")] }, async (request, reply) => {
     const { id } = request.params;
     const currentResult = await app.db.select({ id: tournaments.id, status: tournaments.status }).from(tournaments).where(eq(tournaments.id, id)).limit(1);
 
@@ -168,7 +160,7 @@ export async function registerTournamentRoutes(app: FastifyInstance) {
   });
 
   // Get tournament standings
-  app.get<{ Params: TournamentParams }>("/tournaments/:id/standings", { preHandler: [conditionalRequireAuth, conditionalRequireTournamentClubRole(["owner", "admin", "organizer", "member"])] }, async (request, reply) => {
+  app.get<{ Params: TournamentParams }>("/tournaments/:id/standings", { preHandler: [app.auth.requireTournamentClubRole("member")] }, async (request, reply) => {
     const result = await getTournamentStandings(app.db, request.params.id);
     return reply.send(result);
   });
