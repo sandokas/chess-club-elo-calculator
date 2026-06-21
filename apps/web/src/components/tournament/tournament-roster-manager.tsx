@@ -14,7 +14,7 @@ import { Badge } from "../ui/badge";
 import type { Tournament } from "../../lib/types.js";
 import { cn } from "../../lib/utils.js";
 import { useTournamentPlayers, useAddTournamentPlayer, useCreateTournamentPlayer, useRemoveTournamentPlayer } from "../../lib/hooks/use-tournaments";
-import { useClubPlayers } from "../../lib/hooks/use-clubs";
+import { usePlayersList } from "../../lib/hooks/use-players";
 
 type TournamentPlayer = {
   playerId: string;
@@ -25,13 +25,6 @@ type TournamentPlayer = {
   blackCount: number;
   points: number;
   matchesPlayed: number;
-};
-
-type ClubPlayer = {
-  id: string;
-  displayName: string;
-  gamesPlayed: number;
-  lastGameDate: string | null;
 };
 
 interface TournamentRosterManagerProps {
@@ -50,14 +43,25 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
   const canEditPairingMethod = tournament.status === "draft";
 
   const { data: tournamentPlayersData, isLoading: isLoadingPlayers } = useTournamentPlayers(tournament.id);
-  const { data: clubPlayersData } = useClubPlayers(tournament.clubId);
+  const {
+    data: clubPlayersData,
+    isFetching: isSearchingPlayers,
+    isPlaceholderData: isPlayerSearchPlaceholder
+  } = usePlayersList(
+    tournament.clubId,
+    1,
+    20,
+    "gamesPlayed",
+    "desc",
+    { name: searchQuery.trim() }
+  );
 
   const addPlayerMutation = useAddTournamentPlayer(tournament.id);
   const createPlayerMutation = useCreateTournamentPlayer(tournament.id);
   const removePlayerMutation = useRemoveTournamentPlayer();
 
   const players = tournamentPlayersData?.players || [];
-  const clubPlayers = clubPlayersData?.players || [];
+  const clubPlayers = isPlayerSearchPlaceholder ? [] : (clubPlayersData?.players || []);
 
   const addPlayerForm = useForm<{ playerId: string }>({
     defaultValues: { playerId: "" }
@@ -155,10 +159,6 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
       return a.displayName.localeCompare(b.displayName);
     });
 
-  const filteredPlayers = availablePlayers.filter((player) =>
-    player.displayName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const handleSelectPlayer = (playerId: string) => {
     addPlayerForm.setValue("playerId", playerId);
     setShowDropdown(false);
@@ -243,7 +243,7 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
                     setShowDropdown(true);
                   }}
                   onFocus={() => setShowDropdown(true)}
-                  disabled={addPlayerMutation.isPending || availablePlayers.length === 0}
+                  disabled={addPlayerMutation.isPending}
                   className="pl-9"
                 />
                 {searchQuery && (
@@ -263,9 +263,9 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
               </div>
             </div>
 
-            {showDropdown && filteredPlayers.length > 0 && (
+            {showDropdown && searchQuery && !isSearchingPlayers && availablePlayers.length > 0 && (
               <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-64 overflow-y-auto">
-                {filteredPlayers.slice(0, 20).map((player) => (
+                {availablePlayers.map((player) => (
                   <button
                     key={player.id}
                     type="button"
@@ -286,7 +286,13 @@ export function TournamentRosterManager({ tournament, onUpdated }: TournamentRos
               </div>
             )}
 
-            {showDropdown && searchQuery && filteredPlayers.length === 0 && (
+            {showDropdown && searchQuery && isSearchingPlayers && (
+              <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg p-3 text-sm text-muted-foreground">
+                Searching...
+              </div>
+            )}
+
+            {showDropdown && searchQuery && !isSearchingPlayers && availablePlayers.length === 0 && (
               <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg p-3 text-sm text-muted-foreground">
                 No players found matching "{searchQuery}"
               </div>
