@@ -87,8 +87,8 @@ export function PlayerDetailPage() {
                       const isWhite = match.whitePlayerId === data.player.id;
                       const opponentName = isWhite ? match.blackPlayerName : match.whitePlayerName;
                       const result = match.result !== null ? (isWhite ? match.result : 1 - match.result) : null;
-                      const eloChange = match.eloBefore && match.eloAfter ? match.eloAfter - match.eloBefore : null;
-                      const glickoChange = match.glickoRatingBefore && match.glickoRatingAfter ? match.glickoRatingAfter - match.glickoRatingBefore : null;
+                      const eloChange = match.eloBefore != null && match.eloAfter != null ? match.eloAfter - match.eloBefore : null;
+                      const glickoChange = match.glickoRatingBefore != null && match.glickoRatingAfter != null ? match.glickoRatingAfter - match.glickoRatingBefore : null;
                       
                       return (
                         <TableRow key={match.id}>

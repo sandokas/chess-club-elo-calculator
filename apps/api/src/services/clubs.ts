@@ -2,7 +2,9 @@ import type { Db } from "@chess-club/db";
 import { clubs, clubMemberships, players, playerRatings, matches } from "@chess-club/db";
 import { eq, sql, and } from "drizzle-orm";
 import { recomputeRatings, type MatchInput } from "../lib/ratings/ratings.js";
+import { matchRatingAuditValues } from "../lib/ratings/audit.js";
 import { createNotFoundError } from "../lib/errors.js";
+import { ratingConfig } from "@chess-club/config";
 
 export type ClubInput = {
   name: string;
@@ -196,7 +198,7 @@ export async function recomputeClubRatings(db: Db, clubId: string) {
     date: row.playedOn
   }));
 
-  const { profiles, audits } = recomputeRatings(playerIds, matchesInput);
+  const { profiles, audits } = recomputeRatings(playerIds, matchesInput, ratingConfig);
 
   let updatedCount = 0;
   for (const [playerId, profile] of profiles.entries()) {
@@ -216,24 +218,7 @@ export async function recomputeClubRatings(db: Db, clubId: string) {
 
   for (const audit of audits) {
     await db.update(matches)
-      .set({
-        whiteEloBefore: audit.whiteEloBefore,
-        whiteEloAfter: audit.whiteEloAfter,
-        blackEloBefore: audit.blackEloBefore,
-        blackEloAfter: audit.blackEloAfter,
-        whiteGlickoRatingBefore: audit.whiteGlickoBefore.rating,
-        whiteGlickoRatingAfter: audit.whiteGlickoAfter.rating,
-        whiteGlickoRdBefore: audit.whiteGlickoBefore.rd,
-        whiteGlickoRdAfter: audit.whiteGlickoAfter.rd,
-        whiteGlickoVolBefore: audit.whiteGlickoBefore.vol,
-        whiteGlickoVolAfter: audit.whiteGlickoAfter.vol,
-        blackGlickoRatingBefore: audit.blackGlickoBefore?.rating,
-        blackGlickoRatingAfter: audit.blackGlickoAfter?.rating,
-        blackGlickoRdBefore: audit.blackGlickoBefore?.rd,
-        blackGlickoRdAfter: audit.blackGlickoAfter?.rd,
-        blackGlickoVolBefore: audit.blackGlickoBefore?.vol,
-        blackGlickoVolAfter: audit.blackGlickoAfter?.vol
-      })
+      .set(matchRatingAuditValues(audit))
       .where(eq(matches.id, audit.matchId as string));
   }
 

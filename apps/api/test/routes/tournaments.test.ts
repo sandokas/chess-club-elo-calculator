@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
-import { tournaments } from "@chess-club/db";
+import { matches, playerRatings, tournaments } from "@chess-club/db";
 import { createTestApp, type TestApp } from "../helpers/app.js";
-import { seedAuthenticatedOwner, seedTournament } from "../helpers/seed.js";
+import { seedAuthenticatedOwner, seedPlayer, seedTournament } from "../helpers/seed.js";
+import { ratingConfig } from "@chess-club/config";
 
 describe("tournament routes", () => {
   let testApp: TestApp;
@@ -163,6 +164,174 @@ describe("tournament routes", () => {
       });
 
       expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe("PUT /matches/:id/result", () => {
+    it("applies ratings incrementally and stores complete match audits", async () => {
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
+      const tournament = await seedTournament(testApp.db, { clubId: club.id, status: "active" });
+      const player1 = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Player One" });
+      const player2 = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Player Two" });
+      const player3 = await seedPlayer(testApp.db, { clubId: club.id, displayName: "Player Three" });
+
+      const [firstMatch] = await testApp.db.insert(matches).values({
+        clubId: club.id,
+        tournamentId: tournament.id,
+        whitePlayerId: player1.id,
+        blackPlayerId: player2.id,
+        playedOn: "2026-06-20"
+      }).returning({ id: matches.id });
+
+      const firstResponse = await testApp.app.inject({
+        method: "PUT",
+        url: `/matches/${firstMatch!.id}/result`,
+        payload: { result: 1 },
+        cookies: { sid: session.token }
+      });
+      expect(firstResponse.statusCode).toBe(200);
+
+      const [firstAudit] = await testApp.db.select().from(matches).where(eq(matches.id, firstMatch!.id));
+      expect(firstAudit).toMatchObject({
+        whiteEloBefore: ratingConfig.defaultElo,
+        blackEloBefore: ratingConfig.defaultElo,
+        whiteGlickoRatingBefore: ratingConfig.g2DefaultRating,
+        blackGlickoRatingBefore: ratingConfig.g2DefaultRating,
+        whiteLastPlayedBefore: null,
+        blackLastPlayedBefore: null
+      });
+      expect(firstAudit!.whiteEloAfter).not.toBeNull();
+      expect(firstAudit!.blackEloAfter).not.toBeNull();
+      expect(firstAudit!.whiteGlickoRatingAfter).not.toBeNull();
+      expect(firstAudit!.blackGlickoRatingAfter).not.toBeNull();
+      expect(firstAudit!.whiteGlickoRdAfter).not.toBeNull();
+      expect(firstAudit!.blackGlickoVolAfter).not.toBeNull();
+
+      const [player1AfterFirst] = await testApp.db.select().from(playerRatings)
+        .where(eq(playerRatings.playerId, player1.id));
+      expect(player1AfterFirst).toMatchObject({
+        elo: firstAudit!.whiteEloAfter,
+        glickoRating: firstAudit!.whiteGlickoRatingAfter,
+        gamesPlayed: 1,
+        lastGameDate: "2026-06-20",
+        lastGameMatchId: firstMatch!.id
+      });
+
+      const [secondMatch] = await testApp.db.insert(matches).values({
+        clubId: club.id,
+        tournamentId: tournament.id,
+        whitePlayerId: player1.id,
+        blackPlayerId: player3.id,
+        playedOn: "2026-06-21"
+      }).returning({ id: matches.id });
+
+      const secondResponse = await testApp.app.inject({
+        method: "PUT",
+        url: `/matches/${secondMatch!.id}/result`,
+        payload: { result: 0 },
+        cookies: { sid: session.token }
+      });
+      expect(secondResponse.statusCode).toBe(200);
+
+      const [secondAudit] = await testApp.db.select().from(matches).where(eq(matches.id, secondMatch!.id));
+      expect(secondAudit!.whiteEloBefore).toBe(firstAudit!.whiteEloAfter);
+      expect(secondAudit!.whiteGlickoRatingBefore).toBe(firstAudit!.whiteGlickoRatingAfter);
+      expect(secondAudit!.whiteLastPlayedBefore).toBe("2026-06-20");
+    });
+
+    it("is idempotent and replaces the latest result from its stored before state", async () => {
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
+      const tournament = await seedTournament(testApp.db, { clubId: club.id, status: "active" });
+      const white = await seedPlayer(testApp.db, { clubId: club.id });
+      const black = await seedPlayer(testApp.db, { clubId: club.id });
+      const [match] = await testApp.db.insert(matches).values({
+        clubId: club.id,
+        tournamentId: tournament.id,
+        whitePlayerId: white.id,
+        blackPlayerId: black.id,
+        playedOn: "2026-06-21"
+      }).returning({ id: matches.id });
+
+      const submit = (result: number | null) => testApp.app.inject({
+        method: "PUT",
+        url: `/matches/${match!.id}/result`,
+        payload: { result },
+        cookies: { sid: session.token }
+      });
+
+      expect((await submit(1)).statusCode).toBe(200);
+      const [winAudit] = await testApp.db.select().from(matches).where(eq(matches.id, match!.id));
+      expect((await submit(1)).statusCode).toBe(200);
+
+      const [afterDuplicate] = await testApp.db.select().from(playerRatings)
+        .where(eq(playerRatings.playerId, white.id));
+      expect(afterDuplicate!.gamesPlayed).toBe(1);
+      expect(afterDuplicate!.elo).toBe(winAudit!.whiteEloAfter);
+
+      expect((await submit(0)).statusCode).toBe(200);
+      const [lossAudit] = await testApp.db.select().from(matches).where(eq(matches.id, match!.id));
+      const [afterReplacement] = await testApp.db.select().from(playerRatings)
+        .where(eq(playerRatings.playerId, white.id));
+      expect(lossAudit!.whiteEloBefore).toBe(ratingConfig.defaultElo);
+      expect(lossAudit!.whiteEloAfter).toBeLessThan(ratingConfig.defaultElo);
+      expect(afterReplacement!.gamesPlayed).toBe(1);
+      expect(afterReplacement!.elo).toBe(lossAudit!.whiteEloAfter);
+
+      expect((await submit(null)).statusCode).toBe(200);
+      const [clearedMatch] = await testApp.db.select().from(matches).where(eq(matches.id, match!.id));
+      const [afterUndo] = await testApp.db.select().from(playerRatings)
+        .where(eq(playerRatings.playerId, white.id));
+      expect(clearedMatch!.result).toBeNull();
+      expect(clearedMatch!.whiteEloBefore).toBeNull();
+      expect(clearedMatch!.whiteEloAfter).toBeNull();
+      expect(afterUndo).toMatchObject({
+        elo: ratingConfig.defaultElo,
+        glickoRating: ratingConfig.g2DefaultRating,
+        gamesPlayed: 0,
+        lastGameDate: null,
+        lastGameMatchId: null
+      });
+    });
+
+    it("detects a later game when the player changed colors", async () => {
+      const { club, session } = await seedAuthenticatedOwner(testApp.db);
+      const tournament = await seedTournament(testApp.db, { clubId: club.id, status: "active" });
+      const player = await seedPlayer(testApp.db, { clubId: club.id });
+      const opponent1 = await seedPlayer(testApp.db, { clubId: club.id });
+      const opponent2 = await seedPlayer(testApp.db, { clubId: club.id });
+      const [older] = await testApp.db.insert(matches).values({
+        clubId: club.id,
+        tournamentId: tournament.id,
+        whitePlayerId: player.id,
+        blackPlayerId: opponent1.id,
+        playedOn: "2026-06-20"
+      }).returning({ id: matches.id });
+      const [newer] = await testApp.db.insert(matches).values({
+        clubId: club.id,
+        tournamentId: tournament.id,
+        whitePlayerId: opponent2.id,
+        blackPlayerId: player.id,
+        playedOn: "2026-06-21"
+      }).returning({ id: matches.id });
+
+      for (const matchId of [older!.id, newer!.id]) {
+        const response = await testApp.app.inject({
+          method: "PUT",
+          url: `/matches/${matchId}/result`,
+          payload: { result: 1 },
+          cookies: { sid: session.token }
+        });
+        expect(response.statusCode).toBe(200);
+      }
+
+      const response = await testApp.app.inject({
+        method: "PUT",
+        url: `/matches/${older!.id}/result`,
+        payload: { result: 0 },
+        cookies: { sid: session.token }
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().message).toMatch(/last game/i);
     });
   });
 

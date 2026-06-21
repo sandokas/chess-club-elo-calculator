@@ -4,6 +4,7 @@ import { clubs, players, playerRatings, tournaments, tournamentPlayers, matches,
 import { ratingConfig } from "@chess-club/config";
 import { generateSwissPairings } from "../lib/swiss-pairing.js";
 import { applyRatedMatch, type RatingProfile } from "../lib/ratings/ratings.js";
+import { matchRatingAuditValues } from "../lib/ratings/audit.js";
 
 export async function listTournaments(
   db: Db,
@@ -345,18 +346,52 @@ export async function updateMatchResult(
   matchId: string,
   result: number | null
 ) {
-  const matchResult = await db.select({
+  return db.transaction((tx) => updateMatchResultInTransaction(tx, matchId, result));
+}
+
+type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+async function updateMatchResultInTransaction(
+  tx: DbTransaction,
+  matchId: string,
+  result: number | null
+) {
+  const matchIdentity = await tx.select({ clubId: matches.clubId })
+    .from(matches)
+    .where(eq(matches.id, matchId))
+    .limit(1);
+
+  if (!matchIdentity[0]) {
+    return null;
+  }
+
+  // Serialize rating mutations within a club. Different clubs can still
+  // process results concurrently.
+  await tx.execute(sql`SELECT id FROM clubs WHERE id = ${matchIdentity[0].clubId} FOR UPDATE`);
+
+  const matchResult = await tx.select({
     id: matches.id,
     tournamentId: matches.tournamentId,
     whitePlayerId: matches.whitePlayerId,
     blackPlayerId: matches.blackPlayerId,
     clubId: matches.clubId,
     playedOn: matches.playedOn,
+    result: matches.result,
+    whiteEloBefore: matches.whiteEloBefore,
+    blackEloBefore: matches.blackEloBefore,
+    whiteGlickoRatingBefore: matches.whiteGlickoRatingBefore,
+    whiteGlickoRdBefore: matches.whiteGlickoRdBefore,
+    whiteGlickoVolBefore: matches.whiteGlickoVolBefore,
+    blackGlickoRatingBefore: matches.blackGlickoRatingBefore,
+    blackGlickoRdBefore: matches.blackGlickoRdBefore,
+    blackGlickoVolBefore: matches.blackGlickoVolBefore,
+    whiteLastPlayedBefore: matches.whiteLastPlayedBefore,
+    blackLastPlayedBefore: matches.blackLastPlayedBefore,
     tournamentStatus: tournaments.status
   }).from(matches)
-  .innerJoin(tournaments, eq(tournaments.id, matches.tournamentId))
-  .where(eq(matches.id, matchId))
-  .limit(1);
+    .innerJoin(tournaments, eq(tournaments.id, matches.tournamentId))
+    .where(eq(matches.id, matchId))
+    .limit(1);
 
   const [match] = matchResult;
   if (!match) {
@@ -367,172 +402,201 @@ export async function updateMatchResult(
     return { error: "ValidationError", message: "Cannot update match result for completed tournament" };
   }
 
-  const lastGameCheckResult = await db.execute(sql`
+  if (match.result === result) {
+    return { match: { id: match.id, result: match.result } };
+  }
+
+  const lastGameCheckResult = await tx.execute(sql`
     SELECT
       (SELECT COUNT(*) FROM matches
-       WHERE white_player_id = ${match.whitePlayerId} AND result IS NOT NULL AND black_player_id IS NOT NULL
+       WHERE (white_player_id = ${match.whitePlayerId} OR black_player_id = ${match.whitePlayerId})
+       AND result IS NOT NULL AND black_player_id IS NOT NULL
        AND (played_on > ${match.playedOn} OR (played_on = ${match.playedOn} AND id > ${matchId}))) AS "whiteGamesAfter",
       (SELECT COUNT(*) FROM matches
-       WHERE black_player_id = ${match.blackPlayerId} AND result IS NOT NULL
+       WHERE (white_player_id = ${match.blackPlayerId} OR black_player_id = ${match.blackPlayerId})
+       AND result IS NOT NULL AND black_player_id IS NOT NULL
        AND (played_on > ${match.playedOn} OR (played_on = ${match.playedOn} AND id > ${matchId}))) AS "blackGamesAfter"
   `);
 
   const lastGameCheck = lastGameCheckResult.rows[0] as any;
-  if (lastGameCheck.whiteGamesAfter > 0 || lastGameCheck.blackGamesAfter > 0) {
+  if (Number(lastGameCheck.whiteGamesAfter) > 0 || Number(lastGameCheck.blackGamesAfter) > 0) {
     return { error: "ValidationError", message: "Can only update a player's last game. To update earlier games, rewind game by game." };
   }
 
-  const [updatedMatch] = await db.update(matches)
-    .set({ result: result })
+  // Byes are recorded for standings but never enter the rating chain.
+  if (!match.blackPlayerId) {
+    const [updatedBye] = await tx.update(matches)
+      .set({ result, ...matchRatingAuditValues(null) })
+      .where(eq(matches.id, matchId))
+      .returning({ id: matches.id, result: matches.result });
+    return { match: updatedBye! };
+  }
+
+  const whiteRatingResult = await tx.select({
+      elo: playerRatings.elo,
+      glickoRating: playerRatings.glickoRating,
+      glickoRd: playerRatings.glickoRd,
+      glickoVol: playerRatings.glickoVol,
+      gamesPlayed: playerRatings.gamesPlayed,
+      lastGameDate: playerRatings.lastGameDate
+    }).from(playerRatings).where(and(eq(playerRatings.playerId, match.whitePlayerId), eq(playerRatings.clubId, match.clubId))).limit(1);
+
+  const blackRatingResult = await tx.select({
+    elo: playerRatings.elo,
+    glickoRating: playerRatings.glickoRating,
+    glickoRd: playerRatings.glickoRd,
+    glickoVol: playerRatings.glickoVol,
+    gamesPlayed: playerRatings.gamesPlayed,
+    lastGameDate: playerRatings.lastGameDate
+  }).from(playerRatings).where(and(eq(playerRatings.playerId, match.blackPlayerId), eq(playerRatings.clubId, match.clubId))).limit(1);
+
+  const whiteRating = whiteRatingResult[0];
+  const blackRating = blackRatingResult[0];
+  if (!whiteRating || !blackRating) {
+    throw new Error("Match player rating row not found");
+  }
+
+  const isReplacement = match.result !== null;
+  const hasRollbackAudit =
+    match.whiteEloBefore !== null &&
+    match.blackEloBefore !== null &&
+    match.whiteGlickoRatingBefore !== null &&
+    match.whiteGlickoRdBefore !== null &&
+    match.whiteGlickoVolBefore !== null &&
+    match.blackGlickoRatingBefore !== null &&
+    match.blackGlickoRdBefore !== null &&
+    match.blackGlickoVolBefore !== null;
+
+  if (isReplacement && !hasRollbackAudit) {
+    return { error: "ValidationError", message: "Match rating audit is incomplete. Recompute club ratings before changing this result." };
+  }
+
+  const whiteInput: RatingProfile = isReplacement ? {
+    elo: match.whiteEloBefore!,
+    glicko: {
+      rating: match.whiteGlickoRatingBefore!,
+      rd: match.whiteGlickoRdBefore!,
+      vol: match.whiteGlickoVolBefore!,
+      lastGameDate: match.whiteLastPlayedBefore
+    },
+    gamesPlayed: Math.max(0, whiteRating.gamesPlayed - 1),
+    lastGameDate: match.whiteLastPlayedBefore
+  } : {
+    elo: whiteRating.elo,
+    glicko: {
+      rating: whiteRating.glickoRating,
+      rd: whiteRating.glickoRd,
+      vol: whiteRating.glickoVol,
+      lastGameDate: whiteRating.lastGameDate
+    },
+    gamesPlayed: whiteRating.gamesPlayed,
+    lastGameDate: whiteRating.lastGameDate
+  };
+
+  const blackInput: RatingProfile = isReplacement ? {
+    elo: match.blackEloBefore!,
+    glicko: {
+      rating: match.blackGlickoRatingBefore!,
+      rd: match.blackGlickoRdBefore!,
+      vol: match.blackGlickoVolBefore!,
+      lastGameDate: match.blackLastPlayedBefore
+    },
+    gamesPlayed: Math.max(0, blackRating.gamesPlayed - 1),
+    lastGameDate: match.blackLastPlayedBefore
+  } : {
+    elo: blackRating.elo,
+    glicko: {
+      rating: blackRating.glickoRating,
+      rd: blackRating.glickoRd,
+      vol: blackRating.glickoVol,
+      lastGameDate: blackRating.lastGameDate
+    },
+    gamesPlayed: blackRating.gamesPlayed,
+    lastGameDate: blackRating.lastGameDate
+  };
+
+  const previousMatchId = async (playerId: string) => {
+    const previous = await tx.select({ id: matches.id })
+      .from(matches)
+      .where(and(
+        or(eq(matches.whitePlayerId, playerId), eq(matches.blackPlayerId, playerId)),
+        isNotNull(matches.result),
+        isNotNull(matches.blackPlayerId),
+        sql`${matches.id} <> ${matchId}`,
+        sql`(${matches.playedOn} < ${match.playedOn} OR (${matches.playedOn} = ${match.playedOn} AND ${matches.id} < ${matchId}))`
+      ))
+      .orderBy(desc(matches.playedOn), desc(matches.id))
+      .limit(1);
+    return previous[0]?.id ?? null;
+  };
+
+  if (result === null) {
+    const whitePreviousMatchId = await previousMatchId(match.whitePlayerId);
+    const blackPreviousMatchId = await previousMatchId(match.blackPlayerId);
+
+    await tx.update(matches)
+      .set({ result: null, ...matchRatingAuditValues(null) })
+      .where(eq(matches.id, matchId));
+
+    await tx.update(playerRatings).set({
+      elo: whiteInput.elo,
+      glickoRating: whiteInput.glicko.rating,
+      glickoRd: whiteInput.glicko.rd,
+      glickoVol: whiteInput.glicko.vol,
+      gamesPlayed: whiteInput.gamesPlayed,
+      lastGameDate: whiteInput.lastGameDate,
+      lastGameMatchId: whitePreviousMatchId,
+      updatedAt: new Date()
+    }).where(and(eq(playerRatings.playerId, match.whitePlayerId), eq(playerRatings.clubId, match.clubId)));
+
+    await tx.update(playerRatings).set({
+      elo: blackInput.elo,
+      glickoRating: blackInput.glicko.rating,
+      glickoRd: blackInput.glicko.rd,
+      glickoVol: blackInput.glicko.vol,
+      gamesPlayed: blackInput.gamesPlayed,
+      lastGameDate: blackInput.lastGameDate,
+      lastGameMatchId: blackPreviousMatchId,
+      updatedAt: new Date()
+    }).where(and(eq(playerRatings.playerId, match.blackPlayerId), eq(playerRatings.clubId, match.clubId)));
+
+    return { match: { id: match.id, result: null } };
+  }
+
+  const applied = applyRatedMatch(whiteInput, blackInput, result, new Date(match.playedOn), ratingConfig);
+  if (!applied.black) {
+    throw new Error("Unexpected null black rating from applyRatedMatch");
+  }
+
+  const [updatedMatch] = await tx.update(matches)
+    .set({ result, ...matchRatingAuditValues(applied.audit) })
     .where(eq(matches.id, matchId))
-    .returning();
+    .returning({ id: matches.id, result: matches.result });
   if (!updatedMatch) {
     throw new Error("Failed to update match result");
   }
 
-  if (result === null) {
-    const matchAuditResult = await db.select({
-      whiteEloBefore: matches.whiteEloBefore,
-      blackEloBefore: matches.blackEloBefore,
-      whiteGlickoRatingBefore: matches.whiteGlickoRatingBefore,
-      whiteGlickoRdBefore: matches.whiteGlickoRdBefore,
-      whiteGlickoVolBefore: matches.whiteGlickoVolBefore,
-      blackGlickoRatingBefore: matches.blackGlickoRatingBefore,
-      blackGlickoRdBefore: matches.blackGlickoRdBefore,
-      blackGlickoVolBefore: matches.blackGlickoVolBefore
-    }).from(matches).where(eq(matches.id, matchId)).limit(1);
+  await tx.update(playerRatings).set({
+    elo: applied.white.elo,
+    glickoRating: applied.white.glicko.rating,
+    glickoRd: applied.white.glicko.rd,
+    glickoVol: applied.white.glicko.vol,
+    gamesPlayed: applied.white.gamesPlayed,
+    lastGameDate: applied.white.lastGameDate,
+    lastGameMatchId: match.id,
+    updatedAt: new Date()
+  }).where(and(eq(playerRatings.playerId, match.whitePlayerId), eq(playerRatings.clubId, match.clubId)));
 
-    const matchAudit = matchAuditResult[0];
-
-    if (matchAudit && matchAudit.whiteEloBefore !== null) {
-      const computeLastGameDate = async (playerId: string): Promise<string | null> => {
-        const r = await db.select({ lastDate: sql<string | null>`MAX(${matches.playedOn})` }).from(matches)
-          .where(and(
-            or(eq(matches.whitePlayerId, playerId), eq(matches.blackPlayerId, playerId)),
-            isNotNull(matches.result),
-            isNotNull(matches.blackPlayerId),
-            sql`${matches.id} <> ${matchId}`
-          ));
-        return r[0]?.lastDate || null;
-      };
-
-      await db.update(playerRatings)
-        .set({
-          elo: matchAudit.whiteEloBefore,
-          glickoRating: matchAudit.whiteGlickoRatingBefore!,
-          glickoRd: matchAudit.whiteGlickoRdBefore!,
-          glickoVol: matchAudit.whiteGlickoVolBefore!,
-          gamesPlayed: sql`${playerRatings.gamesPlayed} - 1`,
-          lastGameDate: await computeLastGameDate(match.whitePlayerId)
-        })
-        .where(and(eq(playerRatings.playerId, match.whitePlayerId), eq(playerRatings.clubId, match.clubId)));
-
-      if (match.blackPlayerId) {
-        await db.update(playerRatings)
-          .set({
-            elo: matchAudit.blackEloBefore!,
-            glickoRating: matchAudit.blackGlickoRatingBefore!,
-            glickoRd: matchAudit.blackGlickoRdBefore!,
-            glickoVol: matchAudit.blackGlickoVolBefore!,
-            gamesPlayed: sql`${playerRatings.gamesPlayed} - 1`,
-            lastGameDate: await computeLastGameDate(match.blackPlayerId)
-          })
-          .where(and(eq(playerRatings.playerId, match.blackPlayerId), eq(playerRatings.clubId, match.clubId)));
-      }
-    }
-  } else {
-    const whiteRatingResult = await db.select({
-      elo: playerRatings.elo,
-      glickoRating: playerRatings.glickoRating,
-      glickoRd: playerRatings.glickoRd,
-      glickoVol: playerRatings.glickoVol,
-      gamesPlayed: playerRatings.gamesPlayed
-    }).from(playerRatings).where(and(eq(playerRatings.playerId, match.whitePlayerId), eq(playerRatings.clubId, match.clubId))).limit(1);
-
-    const whiteRating = whiteRatingResult[0];
-
-    const blackRatingResult = match.blackPlayerId ? await db.select({
-      elo: playerRatings.elo,
-      glickoRating: playerRatings.glickoRating,
-      glickoRd: playerRatings.glickoRd,
-      glickoVol: playerRatings.glickoVol,
-      gamesPlayed: playerRatings.gamesPlayed
-    }).from(playerRatings).where(and(eq(playerRatings.playerId, match.blackPlayerId), eq(playerRatings.clubId, match.clubId))).limit(1) : [];
-
-    const blackRating = blackRatingResult[0];
-
-    if (whiteRating && blackRating && match.blackPlayerId) {
-      await db.update(matches)
-        .set({
-          whiteEloBefore: whiteRating.elo,
-          blackEloBefore: blackRating.elo,
-          whiteGlickoRatingBefore: whiteRating.glickoRating,
-          whiteGlickoRdBefore: whiteRating.glickoRd,
-          whiteGlickoVolBefore: whiteRating.glickoVol,
-          blackGlickoRatingBefore: blackRating.glickoRating,
-          blackGlickoRdBefore: blackRating.glickoRd,
-          blackGlickoVolBefore: blackRating.glickoVol
-        })
-        .where(eq(matches.id, matchId));
-
-      const whiteInput: RatingProfile = {
-        elo: whiteRating.elo,
-        glicko: {
-          rating: whiteRating.glickoRating,
-          rd: whiteRating.glickoRd,
-          vol: whiteRating.glickoVol,
-          lastGameDate: null
-        },
-        gamesPlayed: whiteRating.gamesPlayed,
-        lastGameDate: null
-      };
-
-      const blackInput: RatingProfile = {
-        elo: blackRating.elo,
-        glicko: {
-          rating: blackRating.glickoRating,
-          rd: blackRating.glickoRd,
-          vol: blackRating.glickoVol,
-          lastGameDate: null
-        },
-        gamesPlayed: blackRating.gamesPlayed,
-        lastGameDate: null
-      };
-
-      const { white: whiteNew, black: blackNew } = applyRatedMatch(
-        whiteInput,
-        blackInput,
-        result,
-        new Date(match.playedOn)
-      );
-
-      if (!blackNew) {
-        throw new Error("Unexpected null black rating from applyRatedMatch");
-      }
-
-      await db.update(playerRatings)
-        .set({
-          elo: whiteNew.elo,
-          glickoRating: whiteNew.glicko.rating,
-          glickoRd: whiteNew.glicko.rd,
-          glickoVol: whiteNew.glicko.vol,
-          gamesPlayed: sql`${playerRatings.gamesPlayed} + 1`,
-          lastGameDate: match.playedOn
-        })
-        .where(and(eq(playerRatings.playerId, match.whitePlayerId), eq(playerRatings.clubId, match.clubId)));
-
-      await db.update(playerRatings)
-        .set({
-          elo: blackNew.elo,
-          glickoRating: blackNew.glicko.rating,
-          glickoRd: blackNew.glicko.rd,
-          glickoVol: blackNew.glicko.vol,
-          gamesPlayed: sql`${playerRatings.gamesPlayed} + 1`,
-          lastGameDate: match.playedOn
-        })
-        .where(and(eq(playerRatings.playerId, match.blackPlayerId), eq(playerRatings.clubId, match.clubId)));
-    }
-  }
+  await tx.update(playerRatings).set({
+    elo: applied.black.elo,
+    glickoRating: applied.black.glicko.rating,
+    glickoRd: applied.black.glicko.rd,
+    glickoVol: applied.black.glicko.vol,
+    gamesPlayed: applied.black.gamesPlayed,
+    lastGameDate: applied.black.lastGameDate,
+    lastGameMatchId: match.id,
+    updatedAt: new Date()
+  }).where(and(eq(playerRatings.playerId, match.blackPlayerId), eq(playerRatings.clubId, match.clubId)));
 
   return { match: { id: updatedMatch.id, result: updatedMatch.result } };
 }
