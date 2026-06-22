@@ -14,6 +14,7 @@ import { TournamentRosterManager } from "@/components/tournament/tournament-rost
 import { BackButton } from "@/components/shared/back-button";
 import { StatCard } from "@/components/shared/stat-card";
 import { formatDate, formatCompactResult } from "@/lib/formatters";
+import { formatMatchLocation, getMatchLocationHeader } from "@/lib/match-location";
 
 interface TournamentDetailState {
   status: "loading" | "ok" | "error";
@@ -36,7 +37,6 @@ interface TournamentDetail {
   };
   matches: Match[];
   standings: Standing[];
-  tournamentPlayers: Array<{ playerId: string; displayName: string }>;
 }
 
 interface Match {
@@ -47,7 +47,7 @@ interface Match {
   blackPlayerName: string | null;
   result: number | null;
   playedOn: string;
-  boardNumber: number;
+  boardNumber: number | null;
   roundNumber: number | null;
   roundStart: string | null;
 }
@@ -422,7 +422,7 @@ export function TournamentDetailPage() {
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead>Round</TableHead>
+                                <TableHead>{getMatchLocationHeader(selectedRound)}</TableHead>
                                 <TableHead className="hidden sm:table-cell">White</TableHead>
                                 <TableHead className="hidden sm:table-cell">Black</TableHead>
                                 <TableHead>Result</TableHead>
@@ -439,7 +439,9 @@ export function TournamentDetailPage() {
                                 
                                 return [...regularMatches, ...byeMatches].map((match) => (
                                   <TableRow key={match.id}>
-                                    <TableCell className="text-muted-foreground">R{match.roundNumber}</TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                      {formatMatchLocation(selectedRound, match)}
+                                    </TableCell>
                                     <TableCell className="hidden sm:table-cell">
                                       <Link to={`/players/${match.whitePlayerId}`} className="font-medium hover:underline text-sm sm:text-base">{match.whitePlayerName}</Link>
                                     </TableCell>
@@ -615,7 +617,7 @@ export function TournamentDetailPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Round</TableHead>
+                          <TableHead>{getMatchLocationHeader(selectedRound)}</TableHead>
                           <TableHead className="hidden sm:table-cell">White</TableHead>
                           <TableHead className="hidden sm:table-cell">Black</TableHead>
                           <TableHead>Result</TableHead>
@@ -630,19 +632,11 @@ export function TournamentDetailPage() {
                           const regularMatches = matchesInRound.filter(m => m.blackPlayerId !== null);
                           const byeMatches = matchesInRound.filter(m => m.blackPlayerId === null);
                           
-                          // Find players with byes (matches where blackPlayerId is null)
-                          const byePlayers = byeMatches
-                            .map(m => ({
-                              playerId: m.whitePlayerId,
-                              displayName: state.data!.tournamentPlayers.find(tp => tp.playerId === m.whitePlayerId)?.displayName || m.whitePlayerName
-                            }))
-                            .filter((p): p is { playerId: string; displayName: string } => p.playerId !== undefined && p.displayName !== undefined);
-                          
                           return (
                             <>
                               {regularMatches.map((match) => (
                                 <TableRow key={match.id}>
-                                  <TableCell>{match.roundNumber ?? "—"}</TableCell>
+                                  <TableCell>{formatMatchLocation(selectedRound, match)}</TableCell>
                                   <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.whitePlayerId}`} className="font-medium hover:underline">{match.whitePlayerName}</Link></TableCell>
                                   <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.blackPlayerId}`} className="font-medium hover:underline">{match.blackPlayerName}</Link></TableCell>
                                   <TableCell>
@@ -667,10 +661,10 @@ export function TournamentDetailPage() {
                                   </TableCell>
                                 </TableRow>
                               ))}
-                              {byePlayers.map((player) => (
-                                <TableRow key={`bye-${player.playerId}`}>
-                                  <TableCell>{selectedRound ?? "—"}</TableCell>
-                                  <TableCell className="hidden sm:table-cell"><Link to={`/players/${player.playerId}`} className="font-medium hover:underline">{player.displayName}</Link></TableCell>
+                              {byeMatches.map((match) => (
+                                <TableRow key={match.id}>
+                                  <TableCell>{formatMatchLocation(selectedRound, match)}</TableCell>
+                                  <TableCell className="hidden sm:table-cell"><Link to={`/players/${match.whitePlayerId}`} className="font-medium hover:underline">{match.whitePlayerName}</Link></TableCell>
                                   <TableCell className="hidden sm:table-cell">—</TableCell>
                                   <TableCell>
                                     <Badge variant="outline">Bye (1 point)</Badge>
